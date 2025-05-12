@@ -133,7 +133,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 	fmt.Printf("                               [Q] Quit to bbs     [U] Starbase maint       \n")
 	fmt.Printf("                               [T] Team Menu                                \n")
 	fmt.Printf("\n")
-	fmt.Printf("Implemented Commands: M, Q, S, Y\n")
+	fmt.Printf("Implemented Commands: I, M, P, Q, S, Y\n")
 }
 
 func (c *ConsoleUI) ExecuteMove() {
