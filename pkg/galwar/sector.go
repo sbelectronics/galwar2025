@@ -31,6 +31,15 @@ func (s *Sector) AddWarp(warp int) {
 	sort.Ints(s.Warps)
 }
 
+func (s *Sector) RemoveWarp(warp int) {
+	for i, w := range s.Warps {
+		if w == warp {
+			s.Warps = append(s.Warps[:i], s.Warps[i+1:]...)
+			return
+		}
+	}
+}
+
 func (s *Sector) HasWarp(warp int) bool {
 	for _, w := range s.Warps {
 		if w == warp {

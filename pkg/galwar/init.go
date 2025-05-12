@@ -13,6 +13,10 @@ func AddPortToSector(sectorNum int) {
 	Ports.Ports = append(Ports.Ports, &p)
 }
 
+func randSec(numsec int) int {
+	return 1 + rand.Intn(numsec-1)
+}
+
 func InitSectors(numsec int) {
 	for i := 0; i <= numsec; i++ {
 		sec := Sector{
@@ -52,8 +56,8 @@ func InitSectors(numsec int) {
 		var firstSec int
 		var secondSec int
 		for {
-			firstSec = 1 + rand.Intn(numsec-1)
-			secondSec = 1 + rand.Intn(numsec-1)
+			firstSec = randSec(numsec)
+			secondSec = randSec(numsec)
 			if (firstSec != secondSec) && (firstSec/100 == secondSec/100) {
 				break
 			}
@@ -63,12 +67,45 @@ func InitSectors(numsec int) {
 	}
 
 	for a := 1; a <= 250; a++ {
-		b := 1 + rand.Intn(numsec-1)
-		j := rand.Intn(2)
+		b := randSec(numsec) // pick a sector to relink
+		j := rand.Intn(2)    // pick one of the first two links
 		c := Sectors[b].Warps[j]
-		g := 1 + rand.Intn(numsec-1)
-		// TODO: the relinking thing...
-		_ = c
-		_ = g
+		g := randSec(numsec) // pick a sector to relink to
+
+		Sectors[b].RemoveWarp(c) // remove the old link
+		Sectors[b].AddWarp(g)
+		Sectors[g].AddWarp(b)
+
+		g = randSec(numsec)
+		Sectors[c].RemoveWarp(b) // remove the old link
+		Sectors[c].AddWarp(g)
+		Sectors[g].AddWarp(c)
+	}
+
+	// Make dead ends
+
+	for a := 1; a <= numsec*20/2000; a++ {
+		secnum := 20 + randSec(numsec-20) // pick a sector after sector 20
+
+		if len(Sectors[secnum].Warps) == 0 {
+			// how did this happen?
+			continue
+		}
+
+		warpToKeep := rand.Intn(len(Sectors[secnum].Warps))
+		destToKeep := Sectors[secnum].Warps[warpToKeep]
+
+		// dest to keep is the destination we will keep
+
+		// remove everything else
+		for len(Sectors[secnum].Warps) > 0 {
+			destToRemove := Sectors[secnum].Warps[0]
+			Sectors[secnum].RemoveWarp(destToRemove)
+			Sectors[destToRemove].RemoveWarp(secnum)
+		}
+
+		// Put the one we wanted to keep back in
+		Sectors[secnum].AddWarp(destToKeep)
+		Sectors[destToKeep].AddWarp(secnum)
 	}
 }
