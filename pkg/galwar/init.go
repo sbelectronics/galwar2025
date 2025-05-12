@@ -14,7 +14,7 @@ func AddPortToSector(sectorNum int) {
 	// special ports
 	switch i {
 	case 0:
-		p.Type = Sol
+		p.Goods = Sol
 	}
 
 	toSell := rand.Intn(len(TradeGoods))

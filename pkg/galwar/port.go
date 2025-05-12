@@ -16,7 +16,7 @@ type Port struct {
 	Name      string
 	Sector    int
 	Inventory []Commodity
-	Type      PortType
+	Goods     PortType
 }
 
 type PortList struct {
@@ -28,7 +28,7 @@ func (p *Port) GetName() string {
 }
 
 func (p *Port) GetNameExtra() string {
-	if p.Type == Sol {
+	if p.Goods == Sol {
 		return "Federation Operations"
 	}
 

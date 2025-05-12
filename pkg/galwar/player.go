@@ -3,7 +3,6 @@ package galwar
 type Player struct {
 	Name      string
 	Sector    int
-	Holds     int
 	Inventory []Commodity
 	Money     int
 }
@@ -12,19 +11,22 @@ func NewPlayer(name string) *Player {
 	p := &Player{
 		Name:      name,
 		Sector:    1,
-		Holds:     50,
 		Inventory: []Commodity{},
 		Money:     1000,
 	}
 
-	for _, tg := range TradeGoods {
-		cm := Commodity{
-			Name:      tg.Name,
-			ShortName: tg.ShortName,
-			Holds:     tg.Holds,
+	for _, goods := range []([]Commodity){TradeGoods, SolGoods} {
+		for _, tg := range goods {
+			cm := Commodity{
+				Name:      tg.Name,
+				ShortName: tg.ShortName,
+				Holds:     tg.Holds,
+				Quantity:  tg.Starting,
+			}
+			p.Inventory = append(p.Inventory, cm)
 		}
-		p.Inventory = append(p.Inventory, cm)
 	}
+
 	return p
 }
 
@@ -88,7 +90,7 @@ func (p *Player) MoveTo(sector int) {
 }
 
 func (p *Player) GetFreeHolds() int {
-	freeHolds := p.Holds
+	freeHolds := p.GetQuantity("Cargo Holds")
 	for _, c := range p.Inventory {
 		freeHolds -= c.Quantity * c.Holds
 	}

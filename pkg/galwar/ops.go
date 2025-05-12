@@ -41,3 +41,17 @@ func TradeSell(name string, port PortInterface, player InventoryInterface, quant
 	player.AdjustQuantity(name, -quantity)
 	return nil
 }
+
+// TradeBugNoLimit: For things like SolGoods
+// No port quanity to check or adjust
+
+func TradeBuyNoLimit(commodity *Commodity, player InventoryInterface, quantity int) error {
+	// TODO: trade lock
+	totalPrice := commodity.GetSellPrice(quantity)
+	if player.GetMoney() < totalPrice {
+		return fmt.Errorf("not enough money")
+	}
+	player.AdjustMoney(-totalPrice)
+	player.AdjustQuantity(commodity.Name, quantity)
+	return nil
+}

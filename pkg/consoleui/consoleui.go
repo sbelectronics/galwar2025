@@ -193,6 +193,43 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 	}
 }
 
+func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
+	fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Print("\n")
+
+	fmt.Printf("##  Item name               Cost      Can Afford\n")
+	fmt.Printf("--  ----------------------  --------  ----------\n")
+
+	choices := map[string]*galwar.Commodity{}
+	for i, tg := range galwar.SolGoods {
+		canAfford := int(math.Floor(float64(c.Player.GetMoney()) / tg.SellPrice))
+		fmt.Printf("%2d  %-22s %9d %11d\n", i+1, tg.Name, int(tg.GetPrice()), canAfford)
+		choices[fmt.Sprintf("%d", i+1)] = &tg
+	}
+
+	for {
+		input := c.PromptString("\nEnter number to buy or <Q> to quit > ")
+		if input == "q" {
+			return
+		}
+		commodity, exists := choices[input]
+		if !exists {
+			fmt.Printf("Invalid choice. Please try again.\n")
+			continue
+		}
+		canAfford := int(math.Floor(float64(c.Player.GetMoney()) / commodity.SellPrice))
+		qty := c.PromptInt(fmt.Sprintf("\nYou can afford %d %s. How many do you want? ", canAfford, commodity.Name))
+		if qty < 0 {
+			break
+		}
+		if qty > canAfford {
+			fmt.Printf("You cannot afford that many.\n")
+			break
+		}
+		galwar.TradeBuyNoLimit(commodity, c.Player, qty)
+	}
+}
+
 func (c *ConsoleUI) DockPort() {
 	ports := galwar.Universe.GetObjectsInSector(c.Player.Sector, "Port")
 	if len(ports) == 0 {
@@ -203,6 +240,11 @@ func (c *ConsoleUI) DockPort() {
 	if !ok {
 		// This should never happen, but just in case
 		fmt.Printf("Error: Object in sector is not a Port\n")
+		return
+	}
+
+	if port.Goods == galwar.Sol {
+		c.DockSolPort(port)
 		return
 	}
 
@@ -260,10 +302,9 @@ func (c *ConsoleUI) DockPort() {
 
 func (c *ConsoleUI) ExecuteInfo() {
 	fmt.Print("\n")
-	fmt.Printf("          Name: %s\n", c.Player.GetName())
-	fmt.Printf("       Credits: %d\n", c.Player.GetMoney())
-	fmt.Printf("   Cargo Holds: %-15d", c.Player.Holds)
-	fmt.Printf("         Cargo: ")
+	fmt.Printf("           Name: %s\n", c.Player.GetName())
+	fmt.Printf("        Credits: %d\n", c.Player.GetMoney())
+	fmt.Printf("          Cargo:")
 	for _, cm := range c.Player.Inventory {
 		if cm.Holds > 0 {
 			fmt.Printf(" %s: %d", cm.ShortName, cm.Quantity)
@@ -272,7 +313,7 @@ func (c *ConsoleUI) ExecuteInfo() {
 	fmt.Printf("\n")
 	for _, cm := range c.Player.Inventory {
 		if cm.Holds == 0 {
-			fmt.Printf("%10s: %d\n", cm.Name, cm.Quantity)
+			fmt.Printf("%15s: %d\n", cm.Name, cm.Quantity)
 		}
 	}
 }
