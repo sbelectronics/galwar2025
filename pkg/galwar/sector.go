@@ -1,4 +1,4 @@
-package sector
+package galwar
 
 import "sort"
 

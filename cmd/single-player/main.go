@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/sbelectronics/galwar/pkg/initgame"
+	"github.com/sbelectronics/galwar/pkg/galwar"
 )
 
 func main() {
-	initgame.InitSectors(2000)
+	galwar.InitSectors(2000)
 }

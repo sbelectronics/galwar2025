@@ -1,24 +1,21 @@
-package initgame
+package galwar
 
 import (
-	"github.com/sbelectronics/galwar/pkg/port"
-	"github.com/sbelectronics/galwar/pkg/sector"
-	"github.com/sbelectronics/galwar/pkg/universe"
 	"math/rand"
 )
 
 func AddPortToSector(sectorNum int) {
-	i := len(port.Ports.Ports)
-	p := port.Port{
+	i := len(Ports.Ports)
+	p := Port{
 		Name:   PortNames[i],
 		Sector: sectorNum,
 	}
-	port.Ports.Ports = append(port.Ports.Ports, &p)
+	Ports.Ports = append(Ports.Ports, &p)
 }
 
 func InitSectors(numsec int) {
 	for i := 0; i <= numsec; i++ {
-		sec := sector.Sector{
+		sec := Sector{
 			Number: i,
 			Warps:  []int{},
 		}
@@ -28,12 +25,12 @@ func InitSectors(numsec int) {
 		if i < numsec {
 			sec.AddWarp(i + 1)
 		}
-		sector.Sectors = append(sector.Sectors, sec)
+		Sectors = append(Sectors, sec)
 	}
 
 	for i := 2; i <= 9; i++ {
-		sector.Sectors[1].AddWarp(i)
-		sector.Sectors[i].AddWarp(1)
+		Sectors[1].AddWarp(i)
+		Sectors[i].AddWarp(1)
 	}
 
 	AddPortToSector(1) // Sol
@@ -41,7 +38,7 @@ func InitSectors(numsec int) {
 	for a := 11; a <= 425*numsec/2000; a++ {
 		for {
 			b := 1 + rand.Intn(numsec-1)
-			portsThisSector := universe.Universe.GetObjectsInSector(b, "Port")
+			portsThisSector := Universe.GetObjectsInSector(b, "Port")
 			if len(portsThisSector) == 0 {
 				AddPortToSector(b)
 				break
@@ -61,14 +58,14 @@ func InitSectors(numsec int) {
 				break
 			}
 		}
-		sector.Sectors[firstSec].AddWarp(secondSec)
-		sector.Sectors[secondSec].AddWarp(firstSec)
+		Sectors[firstSec].AddWarp(secondSec)
+		Sectors[secondSec].AddWarp(firstSec)
 	}
 
 	for a := 1; a <= 250; a++ {
 		b := 1 + rand.Intn(numsec-1)
 		j := rand.Intn(2)
-		c := sector.Sectors[b].Warps[j]
+		c := Sectors[b].Warps[j]
 		g := 1 + rand.Intn(numsec-1)
 		// TODO: the relinking thing...
 		_ = c

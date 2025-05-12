@@ -1,6 +1,4 @@
-package interfaces
-
-import "github.com/sbelectronics/galwar/pkg/base"
+package galwar
 
 type SectorInterface interface {
 	GetWarps() []int
@@ -19,11 +17,17 @@ type ObjectListInterface interface {
 
 type PortInterface interface {
 	GetName() string
-	GetCommodities() []base.Commodity
+	GetCommodities() []Commodity
+	GetQuantity(name string) int
+	GetCommodity(name string) *Commodity
+	AdjustQuantity(name string, amount int)
+	AdjustMoney(amount int)
 }
 
 type InventoryInterface interface {
 	GetQuantity(name string) int
+	GetCommodity(name string) *Commodity
 	AdjustQuantity(name string, amount int)
+	GetMoney() int
 	AdjustMoney(amount int)
 }

@@ -1,4 +1,4 @@
-package player
+package galwar
 
 type Player struct {
 	Name      string
@@ -16,7 +16,7 @@ func (p *Player) GetType() string {
 	return "Player"
 }
 
-func (p *Player) Sector() int {
+func (p *Player) GetSector() int {
 	return p.Sector
 }
 
@@ -37,7 +37,6 @@ func (p *Player) AdjustQuantity(name string, amount int) {
 	for i, c := range p.Inventory {
 		if c.Name == name {
 			p.Inventory[i].Quantity += amount
-			return nil
 		}
 	}
 	if amount > 0 {

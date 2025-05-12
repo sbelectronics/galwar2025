@@ -1,4 +1,4 @@
-package base
+package galwar
 
 type Commodity struct {
 	Name     string

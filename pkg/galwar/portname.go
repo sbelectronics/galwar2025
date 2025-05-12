@@ -1,4 +1,4 @@
-package initgame
+package galwar
 
 var PortNames = []string{
 	"Sol",
