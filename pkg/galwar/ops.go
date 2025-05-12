@@ -12,7 +12,7 @@ func TradeBuy(name string, port PortInterface, player InventoryInterface, quanti
 	if commodity == nil {
 		return fmt.Errorf("commodity %s not found in port %s", name, port.GetName())
 	}
-	totalPrice := commodity.GetBuyPrice(quantity)
+	totalPrice := commodity.GetSellPrice(quantity)
 	port.AdjustQuantity(name, -quantity)
 	if player.GetMoney() < totalPrice {
 		return fmt.Errorf("not enough money")
@@ -32,7 +32,7 @@ func TradeSell(name string, port PortInterface, player InventoryInterface, quant
 	if commodity == nil {
 		return fmt.Errorf("commodity %s not found in port %s", name, port.GetName())
 	}
-	totalPrice := commodity.GetSellPrice(quantity)
+	totalPrice := commodity.GetBuyPrice(quantity)
 	port.AdjustQuantity(name, -quantity)
 	if player.GetQuantity(name) < quantity {
 		return fmt.Errorf("not enough quantity")

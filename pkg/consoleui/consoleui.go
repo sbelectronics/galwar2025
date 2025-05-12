@@ -3,9 +3,11 @@ package consoleui
 import (
 	"fmt"
 	"github.com/sbelectronics/galwar/pkg/galwar"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type ConsoleUI struct {
@@ -47,13 +49,13 @@ func (c *ConsoleUI) GetInput() string {
 }
 
 func (c *ConsoleUI) PromptString(prompt string) string {
-	fmt.Printf("\n%s", prompt)
+	fmt.Printf("%s", prompt)
 	return c.GetInput()
 }
 
 func (c *ConsoleUI) PromptBool(prompt string) bool {
 	for {
-		fmt.Printf("\n%s", prompt)
+		fmt.Printf("%s", prompt)
 		input := c.GetInput()
 		if input == "y" || input == "Y" {
 			return true
@@ -65,8 +67,24 @@ func (c *ConsoleUI) PromptBool(prompt string) bool {
 
 func (c *ConsoleUI) PromptInt(prompt string) int {
 	for {
-		fmt.Printf("\n%s", prompt)
+		fmt.Printf("%s", prompt)
 		input := c.GetInput()
+
+		result, err := strconv.Atoi(input)
+		if err == nil {
+			return result
+		}
+	}
+}
+
+func (c *ConsoleUI) PromptIntDefault(prompt string, def int) int {
+	for {
+		fmt.Printf("%s", prompt)
+		input := c.GetInput()
+
+		if input == "" {
+			return def
+		}
 
 		result, err := strconv.Atoi(input)
 		if err == nil {
@@ -122,7 +140,7 @@ func (c *ConsoleUI) ExecuteMove() {
 	sector := &galwar.Sectors[c.Player.Sector]
 	fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(sector), ", "))
 
-	secnum := c.PromptInt("Move to what sector? ")
+	secnum := c.PromptInt("\nMove to what sector? ")
 
 	if !sector.HasWarp(secnum) {
 		fmt.Printf("You cannot go to that sector!\n")
@@ -149,7 +167,7 @@ func (c *ConsoleUI) ExecuteScan() {
 }
 
 func (c *ConsoleUI) ExecuteAutopilot() {
-	sec := c.PromptInt("What sector do you wish to go to ? ")
+	sec := c.PromptInt("\nWhat sector do you wish to go to ? ")
 
 	if sec == c.Player.Sector {
 		fmt.Printf("You are in that sector!\n")
@@ -165,7 +183,7 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 
 	fmt.Printf("The shortest path from sector %d to sector %d is: %s\n", c.Player.Sector, sec, strings.Join(pathStrings, ","))
 
-	commit := c.PromptBool("Enter course into autopilot(Y/N) ?")
+	commit := c.PromptBool("\nEnter course into autopilot(Y/N) ?")
 	if commit {
 		pathStrings = []string{}
 		for _, pathSec := range path {
@@ -175,13 +193,101 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 	}
 }
 
+func (c *ConsoleUI) DockPort() {
+	ports := galwar.Universe.GetObjectsInSector(c.Player.Sector, "Port")
+	if len(ports) == 0 {
+		fmt.Printf("No ports in this sector\n")
+		return
+	}
+	port, ok := ports[0].(*galwar.Port)
+	if !ok {
+		// This should never happen, but just in case
+		fmt.Printf("Error: Object in sector is not a Port\n")
+		return
+	}
+
+	fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Print("\n")
+	fmt.Printf(" Items     Status    Price  # units  In holds\n")
+	fmt.Printf(" =====     ======    =====  =======  ========\n")
+
+	for _, cm := range port.Inventory {
+		fmt.Printf("%-10s %-9s %5.2f %8d %9d\n", cm.Name, cm.GetBuySell(), cm.GetPrice(), cm.Quantity, c.Player.GetQuantity(cm.Name))
+	}
+
+	for _, cm := range port.Inventory {
+		if !cm.Sell {
+			for {
+				buyAllow := min(c.Player.GetQuantity(cm.Name), cm.Quantity)
+				fmt.Printf("\nWe are buying up to %d of %s. You have %d in your holds.\n", cm.Quantity, cm.Name, c.Player.GetQuantity(cm.Name))
+				input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to sell [%d] ? ", cm.Name, buyAllow), buyAllow)
+				if input < 0 {
+					fmt.Printf("You cannot sell a negative amount.\n")
+				} else if input > cm.Quantity {
+					fmt.Printf("We aren't buying that many.\n")
+				} else if input > c.Player.GetQuantity(cm.Name) {
+					fmt.Printf("You don't have that much.\n")
+				} else {
+					galwar.TradeSell(cm.Name, port, c.Player, input)
+					break
+				}
+			}
+		}
+	}
+
+	for _, cm := range port.Inventory {
+		if cm.Sell {
+			for {
+				sellAllow := min(c.Player.GetFreeHolds(), cm.Quantity, int(math.Floor(float64(c.Player.GetMoney())/cm.SellPrice)))
+				fmt.Printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", cm.Quantity, cm.Name, c.Player.GetQuantity(cm.Name))
+				input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", cm.Name, sellAllow), sellAllow)
+				if input < 0 {
+					fmt.Printf("You cannot buy a negative amount.\n")
+				} else if input > cm.Quantity {
+					fmt.Printf("We aren't buying that many.\n")
+				} else if input > c.Player.GetFreeHolds() {
+					fmt.Printf("You don't have enough free holds.\n")
+				} else if cm.GetSellPrice(input) > c.Player.GetMoney() {
+					fmt.Printf("You don't have enough credits.\n")
+				} else {
+					galwar.TradeBuy(cm.Name, port, c.Player, input)
+					break
+				}
+			}
+		}
+	}
+}
+
+func (c *ConsoleUI) ExecuteInfo() {
+	fmt.Print("\n")
+	fmt.Printf("          Name: %s\n", c.Player.GetName())
+	fmt.Printf("       Credits: %d\n", c.Player.GetMoney())
+	fmt.Printf("   Cargo Holds: %-15d", c.Player.Holds)
+	fmt.Printf("         Cargo: ")
+	for _, cm := range c.Player.Inventory {
+		if cm.Holds > 0 {
+			fmt.Printf(" %s: %d", cm.ShortName, cm.Quantity)
+		}
+	}
+	fmt.Printf("\n")
+	for _, cm := range c.Player.Inventory {
+		if cm.Holds == 0 {
+			fmt.Printf("%10s: %d\n", cm.Name, cm.Quantity)
+		}
+	}
+}
+
 func (c *ConsoleUI) ExecuteCommand() {
-	command := c.PromptString("Main Command (?=Help) ? ")
+	command := c.PromptString("\nMain Command (?=Help) ? ")
 	switch command {
 	case "?":
 		c.ExecuteHelp()
 	case "m":
 		c.ExecuteMove()
+	case "i":
+		c.ExecuteInfo()
+	case "p":
+		c.DockPort()
 	case "q":
 		c.Terminated = true
 	case "s":

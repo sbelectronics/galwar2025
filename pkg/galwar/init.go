@@ -19,12 +19,13 @@ func AddPortToSector(sectorNum int) {
 
 	toSell := rand.Intn(len(TradeGoods))
 	for i, tg := range TradeGoods {
-		tg.Prod = 50 + rand.Intn(400)
-		tg.Quantity = tg.Prod * 10
-		tg.BuyPrice = tg.BuyPrice * float64((rand.Intn(10)+100)/100)   // up to 10% difference
-		tg.SellPrice = tg.SellPrice * float64((rand.Intn(10)+100)/100) // up to 10% difference
-		tg.Sell = (i == toSell)
-		p.Inventory = append(p.Inventory, tg)
+		cm := tg
+		cm.Prod = 50 + rand.Intn(400)
+		cm.Quantity = cm.Prod * 10
+		cm.BuyPrice = tg.BuyPrice * float64((rand.Intn(10)+100)/100)   // up to 10% difference
+		cm.SellPrice = tg.SellPrice * float64((rand.Intn(10)+100)/100) // up to 10% difference
+		cm.Sell = (i == toSell)
+		p.Inventory = append(p.Inventory, cm)
 	}
 
 	Ports.Ports = append(Ports.Ports, &p)
@@ -55,6 +56,8 @@ func InitSectors(numsec int) {
 	}
 
 	AddPortToSector(1) // Sol
+
+	AddPortToSector(3) // for reproducibility
 
 	for a := 11; a <= 425*numsec/2000; a++ {
 		for {
