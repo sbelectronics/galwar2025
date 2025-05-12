@@ -49,6 +49,10 @@ func (s *Sector) HasWarp(warp int) bool {
 	return false
 }
 
+// Fun Fact: In 1986, My friend Greg wrote the Galwar Autopilot for me.
+// In 2025, I just hit CTRL-I and asked Copilot to implement single sourch
+// shortest paths. The following code is verbatim from the AI:
+
 func (s *Sector) ShortestPathTo(target int) []int {
 	visited := make(map[int]bool)
 	distances := make(map[int]int)
