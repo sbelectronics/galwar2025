@@ -32,6 +32,7 @@ func (c *ConsoleUI) GetInput() string {
 	if idx := strings.Index(c.input, ";"); idx != -1 {
 		result := c.input[:idx]
 		c.input = c.input[idx+1:]
+		fmt.Printf("%s\n", result)
 		return result
 	}
 
@@ -48,6 +49,18 @@ func (c *ConsoleUI) GetInput() string {
 func (c *ConsoleUI) PromptString(prompt string) string {
 	fmt.Printf("\n%s", prompt)
 	return c.GetInput()
+}
+
+func (c *ConsoleUI) PromptBool(prompt string) bool {
+	for {
+		fmt.Printf("\n%s", prompt)
+		input := c.GetInput()
+		if input == "y" || input == "Y" {
+			return true
+		} else if input == "n" || input == "N" || input == "" {
+			return false
+		}
+	}
 }
 
 func (c *ConsoleUI) PromptInt(prompt string) int {
@@ -98,7 +111,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 	fmt.Printf("                               [Q] Quit to bbs     [U] Starbase maint       \n")
 	fmt.Printf("                               [T] Team Menu                                \n")
 	fmt.Printf("\n")
-	fmt.Printf("Implemented Commands: M, Q\n")
+	fmt.Printf("Implemented Commands: M, Q, S, Y\n")
 }
 
 func (c *ConsoleUI) ExecuteMove() {
@@ -114,6 +127,59 @@ func (c *ConsoleUI) ExecuteMove() {
 	c.Player.MoveTo(secnum)
 }
 
+func (c *ConsoleUI) ExecuteScan() {
+	sector := &galwar.Sectors[c.Player.Sector]
+
+	fmt.Printf("\n")
+	fmt.Printf("[-------------------------------------]\n")
+
+	for _, warp := range sector.GetWarps() {
+		adjSector := &galwar.Sectors[warp]
+
+		// display_scan is a lot like display_sector!
+
+		fmt.Printf("Sector: %d\n", adjSector.GetNumber())
+
+		objs := galwar.Universe.GetObjectsInSector(adjSector.GetNumber(), "")
+		for _, obj := range objs {
+			fmt.Printf("%s: %s\n", obj.GetType(), obj.GetName())
+		}
+
+		fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(adjSector), ", "))
+
+		fmt.Printf("\n")
+	}
+
+	fmt.Printf("[-------------------------------------]\n")
+}
+
+func (c *ConsoleUI) ExecuteAutopilot() {
+	sec := c.PromptInt("What sector do you wish to go to ? ")
+
+	if sec == c.Player.Sector {
+		fmt.Printf("You are in that sector!\n")
+		return
+	}
+
+	path := galwar.Sectors[c.Player.Sector].ShortestPathTo(sec)
+
+	pathStrings := []string{}
+	for _, pathSec := range path {
+		pathStrings = append(pathStrings, fmt.Sprintf("%d", pathSec))
+	}
+
+	fmt.Printf("The shortest path from sector %d to sector %d is: %s\n", c.Player.Sector, sec, strings.Join(pathStrings, ","))
+
+	commit := c.PromptBool("Enter course into autopilot(Y/N) ?")
+	if commit {
+		pathStrings = []string{}
+		for _, pathSec := range path {
+			pathStrings = append(pathStrings, fmt.Sprintf("m;%d", pathSec))
+		}
+		c.input = strings.Join(pathStrings, ";")
+	}
+}
+
 func (c *ConsoleUI) ExecuteCommand() {
 	command := c.PromptString("Main Command (?=Help) ? ")
 	switch command {
@@ -123,6 +189,10 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.ExecuteMove()
 	case "q":
 		c.Terminated = true
+	case "s":
+		c.ExecuteScan()
+	case "y":
+		c.ExecuteAutopilot()
 	}
 }
 
