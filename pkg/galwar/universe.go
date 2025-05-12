@@ -10,7 +10,7 @@ func (u *UniverseType) GetObjectsInSector(sector int, kind string) []ObjectInter
 	for _, objList := range u.ObjLists {
 		objItems := objList.GetObjectsInSector(sector)
 		for _, obj := range objItems {
-			if obj.GetType() == kind {
+			if (kind == "") || (obj.GetType() == kind) {
 				objects = append(objects, obj)
 			}
 		}

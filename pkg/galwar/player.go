@@ -8,6 +8,16 @@ type Player struct {
 	Money     int
 }
 
+func NewPlayer(name string) *Player {
+	return &Player{
+		Name:      name,
+		Sector:    1,
+		Holds:     50,
+		Inventory: []Commodity{},
+		Money:     1000,
+	}
+}
+
 func (p *Player) GetName() string {
 	return p.Name
 }
@@ -46,4 +56,8 @@ func (p *Player) AdjustQuantity(name string, amount int) {
 
 func (p *Player) AdjustMoney(amount int) {
 	p.Money += amount
+}
+
+func (p *Player) MoveTo(sector int) {
+	p.Sector = sector
 }

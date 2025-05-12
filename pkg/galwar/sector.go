@@ -30,3 +30,12 @@ func (s *Sector) AddWarp(warp int) {
 	s.Warps = append(s.Warps, warp)
 	sort.Ints(s.Warps)
 }
+
+func (s *Sector) HasWarp(warp int) bool {
+	for _, w := range s.Warps {
+		if w == warp {
+			return true
+		}
+	}
+	return false
+}
