@@ -10,6 +10,23 @@ func AddPortToSector(sectorNum int) {
 		Name:   PortNames[i],
 		Sector: sectorNum,
 	}
+
+	// special ports
+	switch i {
+	case 0:
+		p.Type = Sol
+	}
+
+	toSell := rand.Intn(len(TradeGoods))
+	for i, tg := range TradeGoods {
+		tg.Prod = 50 + rand.Intn(400)
+		tg.Quantity = tg.Prod * 10
+		tg.BuyPrice = tg.BuyPrice * float64((rand.Intn(10)+100)/100)   // up to 10% difference
+		tg.SellPrice = tg.SellPrice * float64((rand.Intn(10)+100)/100) // up to 10% difference
+		tg.Sell = (i == toSell)
+		p.Inventory = append(p.Inventory, tg)
+	}
+
 	Ports.Ports = append(Ports.Ports, &p)
 }
 

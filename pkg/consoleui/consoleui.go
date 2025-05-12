@@ -83,13 +83,17 @@ func (c *ConsoleUI) GetWarpStrings(sector galwar.SectorInterface) []string {
 	return warpStrings
 }
 
-func (c *ConsoleUI) DisplaySector() {
-	sector := &galwar.Sectors[c.Player.Sector]
+func (c *ConsoleUI) DisplaySector(sector galwar.SectorInterface) {
 	fmt.Printf("Sector: %d\n", sector.GetNumber())
 
 	objs := galwar.Universe.GetObjectsInSector(sector.GetNumber(), "")
 	for _, obj := range objs {
-		fmt.Printf("%s: %s\n", obj.GetType(), obj.GetName())
+		extra := obj.GetNameExtra()
+		if extra != "" {
+			fmt.Printf("%s: %s, %s\n", obj.GetType(), obj.GetName(), obj.GetNameExtra())
+		} else {
+			fmt.Printf("%s: %s\n", obj.GetType(), obj.GetName())
+		}
 	}
 
 	fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(sector), ", "))
@@ -136,16 +140,7 @@ func (c *ConsoleUI) ExecuteScan() {
 	for _, warp := range sector.GetWarps() {
 		adjSector := &galwar.Sectors[warp]
 
-		// display_scan is a lot like display_sector!
-
-		fmt.Printf("Sector: %d\n", adjSector.GetNumber())
-
-		objs := galwar.Universe.GetObjectsInSector(adjSector.GetNumber(), "")
-		for _, obj := range objs {
-			fmt.Printf("%s: %s\n", obj.GetType(), obj.GetName())
-		}
-
-		fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(adjSector), ", "))
+		c.DisplaySector(adjSector)
 
 		fmt.Printf("\n")
 	}
@@ -199,7 +194,7 @@ func (c *ConsoleUI) ExecuteCommand() {
 func (c *ConsoleUI) Run() {
 	defer c.wg.Done()
 	for !c.Terminated {
-		c.DisplaySector()
+		c.DisplaySector(&galwar.Sectors[c.Player.Sector])
 		c.ExecuteCommand()
 		fmt.Print("\n")
 	}

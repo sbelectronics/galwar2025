@@ -1,9 +1,22 @@
 package galwar
 
+import (
+	"fmt"
+	"strings"
+)
+
+type PortType int
+
+const (
+	TradingPort PortType = iota
+	Sol
+)
+
 type Port struct {
 	Name      string
 	Sector    int
 	Inventory []Commodity
+	Type      PortType
 }
 
 type PortList struct {
@@ -12,6 +25,24 @@ type PortList struct {
 
 func (p *Port) GetName() string {
 	return p.Name
+}
+
+func (p *Port) GetNameExtra() string {
+	if p.Type == Sol {
+		return "Federation Operations"
+	}
+
+	sellNames := []string{}
+	for _, c := range p.Inventory {
+		if c.Sell {
+			sellNames = append(sellNames, c.ShortName)
+		}
+	}
+	if len(sellNames) == 0 {
+		return "Selling: None"
+	} else {
+		return fmt.Sprintf("Selling: %s", strings.Join(sellNames, ", "))
+	}
 }
 
 func (p *Port) GetType() string {

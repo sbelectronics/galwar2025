@@ -7,6 +7,7 @@ type SectorInterface interface {
 
 type ObjectInterface interface {
 	GetName() string
+	GetNameExtra() string
 	GetType() string
 	GetSector() int
 }
@@ -17,6 +18,7 @@ type ObjectListInterface interface {
 
 type PortInterface interface {
 	GetName() string
+	GetNameExtra() string
 	GetCommodities() []Commodity
 	GetQuantity(name string) int
 	GetCommodity(name string) *Commodity
