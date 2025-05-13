@@ -1,50 +1,49 @@
 package galwar
 
-type Commodity struct {
-	Name      string
-	ShortName string
-	Prod      int
-	Quantity  int
-	BuyPrice  float64
-	SellPrice float64
-	Sell      bool
-	Holds     int
-	Starting  int
+type InventoryBase struct {
+	Inventory []Commodity
+	Money     int
 }
 
-var TradeGoods = []Commodity{
-	{Name: "Ore", ShortName: "Ore", BuyPrice: 8, SellPrice: 5, Holds: 1},
-	{Name: "Organics", ShortName: "Org", BuyPrice: 14, SellPrice: 10, Holds: 1},
-	{Name: "Equipment", ShortName: "Equ", BuyPrice: 25, SellPrice: 20, Holds: 1},
+func (p *InventoryBase) GetCommodities() []Commodity {
+	return p.Inventory
 }
 
-var SolGoods = []Commodity{
-	{Name: "Cargo Holds", ShortName: "Holds", BuyPrice: 0, SellPrice: 500, Holds: 0, Starting: 25, Sell: true},
-	{Name: "Fighters", ShortName: "Fighters", BuyPrice: 0, SellPrice: 98, Holds: 0, Starting: 200, Sell: true},
-	{Name: "Mines", ShortName: "Mines", BuyPrice: 0, SellPrice: 15000, Holds: 0, Sell: true},
-	{Name: "Genesis Devices", ShortName: "Genesis", BuyPrice: 0, SellPrice: 10000, Holds: 0, Sell: true},
-}
-
-func (c *Commodity) GetBuyPrice(quantity int) int {
-	return int(c.BuyPrice * float64(quantity))
-}
-
-func (c *Commodity) GetSellPrice(quantity int) int {
-	return int(c.SellPrice * float64(quantity))
-}
-
-func (c *Commodity) GetPrice() float64 {
-	if c.Sell {
-		return c.SellPrice
+func (p *InventoryBase) GetQuantity(name string) int {
+	for _, c := range p.Inventory {
+		if c.Name == name {
+			return c.Quantity
+		}
 	}
-	return c.BuyPrice
-
+	return 0
 }
 
-func (c Commodity) GetBuySell() string {
-	if c.Sell {
-		return "Selling"
-	} else {
-		return "Buying"
+func (p *InventoryBase) GetCommodity(name string) *Commodity {
+	for _, c := range p.Inventory {
+		if c.Name == name {
+			return &c
+		}
 	}
+	return nil
+}
+
+func (p *InventoryBase) AdjustQuantity(name string, amount int) {
+	for i, c := range p.Inventory {
+		if c.Name == name {
+			p.Inventory[i].Quantity += amount
+			return
+		}
+	}
+	if amount > 0 {
+		cm := Commodity{Name: name, Quantity: amount}
+		p.Inventory = append(p.Inventory, cm)
+	}
+}
+
+func (p *InventoryBase) GetMoney() int {
+	return p.Money
+}
+
+func (p *InventoryBase) AdjustMoney(amount int) {
+	p.Money += amount
 }

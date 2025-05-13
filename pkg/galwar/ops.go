@@ -42,7 +42,7 @@ func TradeSell(name string, port PortInterface, player InventoryInterface, quant
 	return nil
 }
 
-// TradeBugNoLimit: For things like SolGoods
+// TradeBuyNoLimit: For things like SolGoods
 // No port quanity to check or adjust
 
 func TradeBuyNoLimit(commodity *Commodity, player InventoryInterface, quantity int) error {

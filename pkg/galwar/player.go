@@ -7,12 +7,11 @@ import (
 type PlayerId string
 
 type Player struct {
-	Id        PlayerId
-	Email     string
-	Name      string
-	Sector    int
-	Inventory []Commodity
-	Money     int
+	Id     PlayerId
+	Email  string
+	Name   string
+	Sector int
+	InventoryBase
 }
 
 type PlayerList struct {
@@ -30,12 +29,14 @@ func GetPlayer(email string) *Player {
 
 func NewPlayer(name string, email string) *Player {
 	p := &Player{
-		Id:        PlayerId(uuid.New().String()),
-		Email:     email,
-		Name:      name,
-		Sector:    1,
-		Inventory: []Commodity{},
-		Money:     1000,
+		Id:     PlayerId(uuid.New().String()),
+		Email:  email,
+		Name:   name,
+		Sector: 1,
+		InventoryBase: InventoryBase{
+			Inventory: []Commodity{},
+			Money:     1000,
+		},
 	}
 
 	for _, goods := range []([]Commodity){TradeGoods, SolGoods} {
@@ -69,49 +70,6 @@ func (p *Player) GetType() string {
 
 func (p *Player) GetSector() int {
 	return p.Sector
-}
-
-func (p *Player) GetCommodities() []Commodity {
-	return p.Inventory
-}
-
-func (p *Player) GetQuantity(name string) int {
-	for _, c := range p.Inventory {
-		if c.Name == name {
-			return c.Quantity
-		}
-	}
-	return 0
-}
-
-func (p *Player) GetCommodity(name string) *Commodity {
-	for _, c := range p.Inventory {
-		if c.Name == name {
-			return &c
-		}
-	}
-	return nil
-}
-
-func (p *Player) AdjustQuantity(name string, amount int) {
-	for i, c := range p.Inventory {
-		if c.Name == name {
-			p.Inventory[i].Quantity += amount
-			return
-		}
-	}
-	if amount > 0 {
-		cm := Commodity{Name: name, Quantity: amount}
-		p.Inventory = append(p.Inventory, cm)
-	}
-}
-
-func (p *Player) GetMoney() int {
-	return p.Money
-}
-
-func (p *Player) AdjustMoney(amount int) {
-	p.Money += amount
 }
 
 func (p *Player) MoveTo(sector int) {
