@@ -6,10 +6,11 @@ import (
 )
 
 type UniverseType struct {
-	Ports    *PortList
-	Players  *PlayerList
-	Sectors  *[]Sector
-	filename string
+	Ports        *PortList
+	Players      *PlayerList
+	Battlegroups *BattlegroupList
+	Sectors      *[]Sector
+	filename     string
 }
 
 func (u *UniverseType) SetFilename(filename string) {
@@ -82,6 +83,10 @@ func (u *UniverseType) RegisterPorts(ports *PortList) {
 
 func (u *UniverseType) RegisterPlayers(players *PlayerList) {
 	u.Players = players
+}
+
+func (u *UniverseType) RegisterBattlegroups(battlegroups *BattlegroupList) {
+	u.Battlegroups = battlegroups
 }
 
 func (u *UniverseType) RegisterSectors(sectors *[]Sector) {
