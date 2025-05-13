@@ -1,8 +1,29 @@
 package galwar
 
+// ObjectBase - Base object structure for things that implment ObjectInterface
+// These are things that are located in a sector.
+type ObjectBase struct {
+	Name   string
+	Sector int
+}
+
+// InventoryBase - Base inventory structure for things that implement InventoryInterface
+// These are things that have an inventory of commodities and money.
 type InventoryBase struct {
 	Inventory []Commodity
 	Money     int
+}
+
+func (o *ObjectBase) GetName() string {
+	return o.Name
+}
+
+func (o *ObjectBase) GetSector() int {
+	return o.Sector
+}
+
+func (o *ObjectBase) MoveTo(sector int) {
+	o.Sector = sector
 }
 
 func (p *InventoryBase) GetCommodities() []Commodity {
@@ -35,7 +56,7 @@ func (p *InventoryBase) AdjustQuantity(name string, amount int) {
 		}
 	}
 	if amount > 0 {
-		cm := Commodity{Name: name, Quantity: amount}
+		cm := Commodity{Name: name, Quantity: amount} // DANGER - may miss other fields
 		p.Inventory = append(p.Inventory, cm)
 	}
 }

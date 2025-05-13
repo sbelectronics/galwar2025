@@ -3,18 +3,13 @@ package galwar
 import ()
 
 type Battlegroup struct {
-	owner  PlayerId
-	Name   string
-	Sector int
+	owner PlayerId
+	ObjectBase
 	InventoryBase
 }
 
 type BattlegroupList struct {
 	Battlegroups []*Battlegroup
-}
-
-func (b *Battlegroup) GetName() string {
-	return b.Name
 }
 
 func (b *Battlegroup) GetNameExtra() string {
@@ -23,10 +18,6 @@ func (b *Battlegroup) GetNameExtra() string {
 
 func (b *Battlegroup) GetType() string {
 	return "Battlegroup"
-}
-
-func (b *Battlegroup) GetSector() int {
-	return b.Sector
 }
 
 func (b *BattlegroupList) GetObjectsInSector(sector int) []ObjectInterface {

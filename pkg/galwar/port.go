@@ -13,18 +13,13 @@ const (
 )
 
 type Port struct {
-	Name   string
-	Sector int
-	Goods  PortType
+	Goods PortType
+	ObjectBase
 	InventoryBase
 }
 
 type PortList struct {
 	Ports []*Port
-}
-
-func (p *Port) GetName() string {
-	return p.Name
 }
 
 func (p *Port) GetNameExtra() string {
@@ -47,10 +42,6 @@ func (p *Port) GetNameExtra() string {
 
 func (p *Port) GetType() string {
 	return "Port"
-}
-
-func (p *Port) GetSector() int {
-	return p.Sector
 }
 
 func (p *PortList) GetObjectsInSector(sector int) []ObjectInterface {

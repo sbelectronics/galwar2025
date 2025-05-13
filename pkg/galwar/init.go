@@ -7,8 +7,10 @@ import (
 func AddPortToSector(sectorNum int) {
 	i := len(Ports.Ports)
 	p := &Port{
-		Name:   PortNames[i],
-		Sector: sectorNum,
+		ObjectBase: ObjectBase{
+			Name:   PortNames[i],
+			Sector: sectorNum,
+		},
 	}
 
 	// special ports

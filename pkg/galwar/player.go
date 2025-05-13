@@ -7,10 +7,9 @@ import (
 type PlayerId string
 
 type Player struct {
-	Id     PlayerId
-	Email  string
-	Name   string
-	Sector int
+	Id    PlayerId
+	Email string
+	ObjectBase
 	InventoryBase
 }
 
@@ -29,10 +28,12 @@ func GetPlayer(email string) *Player {
 
 func NewPlayer(name string, email string) *Player {
 	p := &Player{
-		Id:     PlayerId(uuid.New().String()),
-		Email:  email,
-		Name:   name,
-		Sector: 1,
+		Id:    PlayerId(uuid.New().String()),
+		Email: email,
+		ObjectBase: ObjectBase{
+			Name:   name,
+			Sector: 1,
+		},
 		InventoryBase: InventoryBase{
 			Inventory: []Commodity{},
 			Money:     1000,
@@ -56,24 +57,12 @@ func NewPlayer(name string, email string) *Player {
 	return p
 }
 
-func (p *Player) GetName() string {
-	return p.Name
-}
-
 func (p *Player) GetNameExtra() string {
 	return ""
 }
 
 func (p *Player) GetType() string {
 	return "Player"
-}
-
-func (p *Player) GetSector() int {
-	return p.Sector
-}
-
-func (p *Player) MoveTo(sector int) {
-	p.Sector = sector
 }
 
 func (p *Player) GetFreeHolds() int {
