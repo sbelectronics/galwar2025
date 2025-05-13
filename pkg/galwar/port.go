@@ -104,8 +104,8 @@ func (p *PortList) GetObjectsInSector(sector int) []ObjectInterface {
 	return portsInSector
 }
 
-var Ports = &PortList{}
+var Ports = PortList{}
 
 func init() {
-	Universe.Register(Ports)
+	Universe.RegisterPorts(&Ports)
 }

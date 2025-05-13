@@ -106,6 +106,10 @@ func (c *ConsoleUI) DisplaySector(sector galwar.SectorInterface) {
 
 	objs := galwar.Universe.GetObjectsInSector(sector.GetNumber(), "")
 	for _, obj := range objs {
+		if obj == c.Player {
+			// don't show yourself
+			continue
+		}
 		extra := obj.GetNameExtra()
 		if extra != "" {
 			fmt.Printf("%s: %s, %s\n", obj.GetType(), obj.GetName(), obj.GetNameExtra())

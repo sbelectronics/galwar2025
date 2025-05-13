@@ -1,14 +1,37 @@
 package galwar
 
+import (
+	"github.com/google/uuid"
+)
+
+type PlayerId string
+
 type Player struct {
+	Id        PlayerId
+	Email     string
 	Name      string
 	Sector    int
 	Inventory []Commodity
 	Money     int
 }
 
-func NewPlayer(name string) *Player {
+type PlayerList struct {
+	Players []*Player
+}
+
+func GetPlayer(email string) *Player {
+	for _, p := range Players.Players {
+		if p.Email == email {
+			return p
+		}
+	}
+	return nil
+}
+
+func NewPlayer(name string, email string) *Player {
 	p := &Player{
+		Id:        PlayerId(uuid.New().String()),
+		Email:     email,
 		Name:      name,
 		Sector:    1,
 		Inventory: []Commodity{},
@@ -27,11 +50,17 @@ func NewPlayer(name string) *Player {
 		}
 	}
 
+	Players.Players = append(Players.Players, p)
+
 	return p
 }
 
 func (p *Player) GetName() string {
 	return p.Name
+}
+
+func (p *Player) GetNameExtra() string {
+	return ""
 }
 
 func (p *Player) GetType() string {
@@ -95,4 +124,20 @@ func (p *Player) GetFreeHolds() int {
 		freeHolds -= c.Quantity * c.Holds
 	}
 	return freeHolds
+}
+
+func (p *PlayerList) GetObjectsInSector(sector int) []ObjectInterface {
+	var playersInSector []ObjectInterface
+	for _, player := range p.Players {
+		if player.Sector == sector {
+			playersInSector = append(playersInSector, player)
+		}
+	}
+	return playersInSector
+}
+
+var Players = PlayerList{}
+
+func init() {
+	Universe.RegisterPlayers(&Players)
 }

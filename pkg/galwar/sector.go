@@ -103,3 +103,7 @@ func (s *Sector) ShortestPathTo(target int) []int {
 	path = append([]int{s.Number}, path...)
 	return path
 }
+
+func init() {
+	Universe.RegisterSectors(&Sectors)
+}

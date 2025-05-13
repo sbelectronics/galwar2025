@@ -6,7 +6,7 @@ import (
 
 func AddPortToSector(sectorNum int) {
 	i := len(Ports.Ports)
-	p := Port{
+	p := &Port{
 		Name:   PortNames[i],
 		Sector: sectorNum,
 	}
@@ -28,7 +28,7 @@ func AddPortToSector(sectorNum int) {
 		p.Inventory = append(p.Inventory, cm)
 	}
 
-	Ports.Ports = append(Ports.Ports, &p)
+	Ports.Ports = append(Ports.Ports, p)
 }
 
 func randSec(numsec int) int {
