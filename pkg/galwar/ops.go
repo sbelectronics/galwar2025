@@ -8,14 +8,20 @@ import (
 
 func TradeBuy(name string, port PortInterface, player InventoryInterface, quantity int) error {
 	// TODO: trade lock
+	if quantity < 0 {
+		return NewGameError(ErrNegativeQuantity, "You can't buy negative quantity.")
+	}
 	commodity := port.GetCommodity(name)
 	if commodity == nil {
-		return fmt.Errorf("commodity %s not found in port %s", name, port.GetName())
+		return NewGameError(ErrUnknown, fmt.Sprintf("commodity %s not found in port %s", name, port.GetName()))
+	}
+	if commodity.Quantity < quantity {
+		return NewGameError(ErrNotEnoughQuantity, "We aren't selling that many.")
 	}
 	totalPrice := commodity.GetSellPrice(quantity)
 	port.AdjustQuantity(name, -quantity)
 	if player.GetMoney() < totalPrice {
-		return fmt.Errorf("not enough money")
+		return NewGameError(ErrNotEnoughMoney, "You don't have enough credits.")
 	}
 	player.AdjustMoney(-totalPrice)
 	player.AdjustQuantity(name, quantity)
@@ -28,14 +34,20 @@ func TradeSell(name string, port PortInterface, player InventoryInterface, quant
 	// TODO: trade lock
 	// Note: Even here we adjust the port's quantity by -quantity, because we're actually reducing
 	// the amount of goods the port wants to purchase.
+	if quantity < 0 {
+		return NewGameError(ErrNegativeQuantity, "You can't sell negative quantity.")
+	}
 	commodity := port.GetCommodity(name)
 	if commodity == nil {
-		return fmt.Errorf("commodity %s not found in port %s", name, port.GetName())
+		return NewGameError(ErrUnknown, fmt.Sprintf("commodity %s not found in port %s", name, port.GetName()))
+	}
+	if commodity.Quantity < quantity {
+		return NewGameError(ErrNotEnoughQuantity, "We aren't buying that many.")
 	}
 	totalPrice := commodity.GetBuyPrice(quantity)
 	port.AdjustQuantity(name, -quantity)
 	if player.GetQuantity(name) < quantity {
-		return fmt.Errorf("not enough quantity")
+		return NewGameError(ErrNotEnoughMoney, "You don't have enough credits.")
 	}
 	player.AdjustMoney(totalPrice)
 	player.AdjustQuantity(name, -quantity)

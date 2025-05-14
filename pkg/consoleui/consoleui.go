@@ -23,6 +23,15 @@ func NewConsoleUI(player *galwar.Player) *ConsoleUI {
 	}
 }
 
+func (c *ConsoleUI) PrintError(err error) {
+	gameErr, ok := err.(*galwar.GameError)
+	if ok {
+		fmt.Printf("%s\n", gameErr.Message())
+		return
+	}
+	fmt.Printf("Error: %s\n", err.Error())
+}
+
 func (c *ConsoleUI) GetInput() string {
 	scanned := false
 	if c.input == "" {
@@ -205,10 +214,10 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 	fmt.Printf("--  ----------------------  --------  ----------\n")
 
 	choices := map[string]*galwar.Commodity{}
-	for i, tg := range galwar.SolGoods {
-		canAfford := int(math.Floor(float64(c.Player.GetMoney()) / tg.SellPrice))
-		fmt.Printf("%2d  %-22s %9d %11d\n", i+1, tg.Name, int(tg.GetPrice()), canAfford)
-		choices[fmt.Sprintf("%d", i+1)] = &tg
+	for i, cm := range port.Inventory {
+		canAfford := int(math.Floor(float64(c.Player.GetMoney()) / cm.SellPrice))
+		fmt.Printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
+		choices[fmt.Sprintf("%d", i+1)] = &cm
 	}
 
 	for {
@@ -267,16 +276,11 @@ func (c *ConsoleUI) DockPort() {
 				buyAllow := min(c.Player.GetQuantity(cm.Name), cm.Quantity)
 				fmt.Printf("\nWe are buying up to %d of %s. You have %d in your holds.\n", cm.Quantity, cm.Name, c.Player.GetQuantity(cm.Name))
 				input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to sell [%d] ? ", cm.Name, buyAllow), buyAllow)
-				if input < 0 {
-					fmt.Printf("You cannot sell a negative amount.\n")
-				} else if input > cm.Quantity {
-					fmt.Printf("We aren't buying that many.\n")
-				} else if input > c.Player.GetQuantity(cm.Name) {
-					fmt.Printf("You don't have that much.\n")
-				} else {
-					galwar.TradeSell(cm.Name, port, c.Player, input)
+				err := galwar.TradeSell(cm.Name, port, c.Player, input)
+				if err == nil {
 					break
 				}
+				c.PrintError(err)
 			}
 		}
 	}
@@ -287,18 +291,15 @@ func (c *ConsoleUI) DockPort() {
 				sellAllow := min(c.Player.GetFreeHolds(), cm.Quantity, int(math.Floor(float64(c.Player.GetMoney())/cm.SellPrice)))
 				fmt.Printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", cm.Quantity, cm.Name, c.Player.GetQuantity(cm.Name))
 				input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", cm.Name, sellAllow), sellAllow)
-				if input < 0 {
-					fmt.Printf("You cannot buy a negative amount.\n")
-				} else if input > cm.Quantity {
-					fmt.Printf("We aren't buying that many.\n")
-				} else if input > c.Player.GetFreeHolds() {
+				if input > c.Player.GetFreeHolds() {
 					fmt.Printf("You don't have enough free holds.\n")
-				} else if cm.GetSellPrice(input) > c.Player.GetMoney() {
-					fmt.Printf("You don't have enough credits.\n")
-				} else {
-					galwar.TradeBuy(cm.Name, port, c.Player, input)
+					continue
+				}
+				err := galwar.TradeBuy(cm.Name, port, c.Player, input)
+				if err == nil {
 					break
 				}
+				c.PrintError(err)
 			}
 		}
 	}
@@ -310,13 +311,13 @@ func (c *ConsoleUI) ExecuteInfo() {
 	fmt.Printf("        Credits: %d\n", c.Player.GetMoney())
 	fmt.Printf("          Cargo:")
 	for _, cm := range c.Player.Inventory {
-		if cm.Holds > 0 {
-			fmt.Printf(" %s: %d", cm.ShortName, cm.Quantity)
+		if cm.IsCargo() {
+			fmt.Printf(" %s: %d", cm.GetShortName(), cm.Quantity)
 		}
 	}
 	fmt.Printf("\n")
 	for _, cm := range c.Player.Inventory {
-		if cm.Holds == 0 {
+		if !cm.IsCargo() {
 			fmt.Printf("%15s: %d\n", cm.Name, cm.Quantity)
 		}
 	}

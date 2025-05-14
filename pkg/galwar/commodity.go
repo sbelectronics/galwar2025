@@ -2,27 +2,52 @@ package galwar
 
 type Commodity struct {
 	Name      string
-	ShortName string
 	Prod      int
 	Quantity  int
 	BuyPrice  float64
 	SellPrice float64
 	Sell      bool
-	Holds     int
-	Starting  int
 }
 
-var TradeGoods = []Commodity{
-	{Name: "Ore", ShortName: "Ore", BuyPrice: 8, SellPrice: 5, Holds: 1},
-	{Name: "Organics", ShortName: "Org", BuyPrice: 14, SellPrice: 10, Holds: 1},
-	{Name: "Equipment", ShortName: "Equ", BuyPrice: 25, SellPrice: 20, Holds: 1},
+type CommodityDefinition struct {
+	Commodity
+	ShortName   string
+	Holds       int
+	Starting    int
+	SellAtPorts bool
+	SellAtSol   bool
 }
 
-var SolGoods = []Commodity{
-	{Name: "Cargo Holds", ShortName: "Holds", BuyPrice: 0, SellPrice: 500, Holds: 0, Starting: 25, Sell: true},
-	{Name: "Fighters", ShortName: "Fighters", BuyPrice: 0, SellPrice: 98, Holds: 0, Starting: 200, Sell: true},
-	{Name: "Mines", ShortName: "Mines", BuyPrice: 0, SellPrice: 15000, Holds: 0, Sell: true},
-	{Name: "Genesis Devices", ShortName: "Genesis", BuyPrice: 0, SellPrice: 10000, Holds: 0, Sell: true},
+var TradeGoods = []CommodityDefinition{
+	{Commodity: Commodity{Name: "Ore", BuyPrice: 8, SellPrice: 5}, ShortName: "Ore", Holds: 1, SellAtPorts: true},
+	{Commodity: Commodity{Name: "Organics", BuyPrice: 14, SellPrice: 10}, ShortName: "Org", Holds: 1, SellAtPorts: true},
+	{Commodity: Commodity{Name: "Equipment", BuyPrice: 25, SellPrice: 20}, ShortName: "Equ", Holds: 1, SellAtPorts: true},
+	{Commodity: Commodity{Name: "Cargo Holds", SellPrice: 500, Sell: true}, ShortName: "Holds", Holds: 0, Starting: 25, SellAtSol: true},
+	{Commodity: Commodity{Name: "Fighters", SellPrice: 98, Sell: true}, ShortName: "Fighters", Holds: 0, Starting: 200, SellAtSol: true},
+	{Commodity: Commodity{Name: "Mines", SellPrice: 15000, Sell: true}, ShortName: "Mines", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: "Genesis Devices", SellPrice: 10000, Sell: true}, ShortName: "Genesis", Holds: 0, SellAtSol: true},
+}
+
+func (c *Commodity) GetDef() *CommodityDefinition {
+	for i, def := range TradeGoods {
+		if c.Name == def.Name {
+			return &TradeGoods[i]
+		}
+	}
+	panic("Fatal error: Commodity definition not found")
+	return nil
+}
+
+func (c *Commodity) GetShortName() string {
+	return c.GetDef().ShortName
+}
+
+func (c *Commodity) GetHoldsUsed() int {
+	return c.GetDef().Holds * c.Quantity
+}
+
+func (c *Commodity) IsCargo() bool {
+	return c.GetDef().Holds > 0
 }
 
 func (c *Commodity) GetBuyPrice(quantity int) int {

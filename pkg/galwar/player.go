@@ -40,16 +40,12 @@ func NewPlayer(name string, email string) *Player {
 		},
 	}
 
-	for _, goods := range []([]Commodity){TradeGoods, SolGoods} {
-		for _, tg := range goods {
-			cm := Commodity{
-				Name:      tg.Name,
-				ShortName: tg.ShortName,
-				Holds:     tg.Holds,
-				Quantity:  tg.Starting,
-			}
-			p.Inventory = append(p.Inventory, cm)
+	for _, tg := range TradeGoods {
+		cm := Commodity{
+			Name:     tg.Name,
+			Quantity: tg.Starting,
 		}
+		p.Inventory = append(p.Inventory, cm)
 	}
 
 	Players.Players = append(Players.Players, p)
@@ -68,7 +64,7 @@ func (p *Player) GetType() string {
 func (p *Player) GetFreeHolds() int {
 	freeHolds := p.GetQuantity("Cargo Holds")
 	for _, c := range p.Inventory {
-		freeHolds -= c.Quantity * c.Holds
+		freeHolds -= c.GetHoldsUsed()
 	}
 	return freeHolds
 }

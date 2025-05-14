@@ -30,7 +30,7 @@ func (p *Port) GetNameExtra() string {
 	sellNames := []string{}
 	for _, c := range p.Inventory {
 		if c.Sell {
-			sellNames = append(sellNames, c.ShortName)
+			sellNames = append(sellNames, c.GetShortName())
 		}
 	}
 	if len(sellNames) == 0 {

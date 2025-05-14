@@ -17,17 +17,30 @@ func AddPortToSector(sectorNum int) {
 	switch i {
 	case 0:
 		p.Goods = Sol
-	}
-
-	toSell := rand.Intn(len(TradeGoods))
-	for i, tg := range TradeGoods {
-		cm := tg
-		cm.Prod = 50 + rand.Intn(400)
-		cm.Quantity = cm.Prod * 10
-		cm.BuyPrice = float64(tg.BuyPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0   // up to 10% difference
-		cm.SellPrice = float64(tg.SellPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0 // up to 10% difference
-		cm.Sell = (i == toSell)
-		p.Inventory = append(p.Inventory, cm)
+		for _, tg := range TradeGoods {
+			if !tg.SellAtSol {
+				continue
+			}
+			cm := tg.Commodity
+			cm.Sell = true
+			p.Inventory = append(p.Inventory, cm)
+		}
+		break
+	default:
+		toSell := rand.Intn(len(TradeGoods))
+		for i, tg := range TradeGoods {
+			if !tg.SellAtPorts {
+				continue
+			}
+			cm := tg.Commodity
+			cm.Prod = 50 + rand.Intn(400)
+			cm.Quantity = cm.Prod * 10
+			cm.BuyPrice = float64(tg.BuyPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0   // up to 10% difference
+			cm.SellPrice = float64(tg.SellPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0 // up to 10% difference
+			cm.Sell = (i == toSell)
+			p.Inventory = append(p.Inventory, cm)
+		}
+		break
 	}
 
 	Ports.Ports = append(Ports.Ports, p)
