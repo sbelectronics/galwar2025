@@ -39,4 +39,11 @@ const (
 	TYPE_BATTLEGROUP = "Battlegroup"
 	TYPE_PORT        = "Port"
 	TYPE_PLAYER      = "Player"
+	TYPE_PLANET      = "Planet"
+)
+
+const (
+	MUST_EXIST     = 1
+	MUST_NOT_EXIST = 2
+	CREATE         = 4
 )

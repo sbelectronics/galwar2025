@@ -14,6 +14,10 @@ const (
 	ErrNotOwner
 	ErrInvalidType
 	ErrFedRestricted
+	ErrAlreadyExists
+	ErrInvalidName
+	ErrNotFound
+	ErrNotEnoughHolds
 )
 
 var GameErrorCodeNames = map[GameErrorCode]string{
@@ -24,6 +28,10 @@ var GameErrorCodeNames = map[GameErrorCode]string{
 	ErrNotOwner:          "Not owner",
 	ErrInvalidType:       "Invalid type",
 	ErrFedRestricted:     "Federation restricted",
+	ErrAlreadyExists:     "Already exists",
+	ErrInvalidName:       "Invalid name",
+	ErrNotFound:          "Not found",
+	ErrNotEnoughHolds:    "Not enough holds",
 }
 
 type GameError struct {

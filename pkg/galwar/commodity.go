@@ -11,21 +11,33 @@ type Commodity struct {
 
 type CommodityDefinition struct {
 	Commodity
-	ShortName   string
-	Holds       int
-	Starting    int
-	SellAtPorts bool
-	SellAtSol   bool
+	ShortName      string
+	Holds          int
+	Starting       int
+	SellAtPorts    bool
+	SellAtSol      bool
+	OnPlanet       bool
+	PlanetStarting int
 }
 
+const (
+	ORE       = "Ore"
+	ORGANICS  = "Organics"
+	EQUIPMENT = "Equipment"
+	HOLDS     = "Cargo Holds"
+	FIGHTERS  = "Fighters"
+	MINES     = "Mines"
+	GENESIS   = "Genesis Devices"
+)
+
 var TradeGoods = []CommodityDefinition{
-	{Commodity: Commodity{Name: "Ore", BuyPrice: 8, SellPrice: 5}, ShortName: "Ore", Holds: 1, SellAtPorts: true},
-	{Commodity: Commodity{Name: "Organics", BuyPrice: 14, SellPrice: 10}, ShortName: "Org", Holds: 1, SellAtPorts: true},
-	{Commodity: Commodity{Name: "Equipment", BuyPrice: 25, SellPrice: 20}, ShortName: "Equ", Holds: 1, SellAtPorts: true},
-	{Commodity: Commodity{Name: "Cargo Holds", SellPrice: 500, Sell: true}, ShortName: "Holds", Holds: 0, Starting: 25, SellAtSol: true},
-	{Commodity: Commodity{Name: "Fighters", SellPrice: 98, Sell: true}, ShortName: "Fighters", Holds: 0, Starting: 200, SellAtSol: true},
-	{Commodity: Commodity{Name: "Mines", SellPrice: 15000, Sell: true}, ShortName: "Mines", Holds: 0, SellAtSol: true},
-	{Commodity: Commodity{Name: "Genesis Devices", SellPrice: 10000, Sell: true}, ShortName: "Genesis", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: ORE, BuyPrice: 8, SellPrice: 5}, ShortName: "Ore", Holds: 1, SellAtPorts: true, OnPlanet: true, PlanetStarting: 10},
+	{Commodity: Commodity{Name: ORGANICS, BuyPrice: 14, SellPrice: 10}, ShortName: "Org", Holds: 1, SellAtPorts: true, OnPlanet: true, PlanetStarting: 10},
+	{Commodity: Commodity{Name: EQUIPMENT, BuyPrice: 25, SellPrice: 20}, ShortName: "Equ", Holds: 1, SellAtPorts: true, OnPlanet: true, PlanetStarting: 10},
+	{Commodity: Commodity{Name: HOLDS, SellPrice: 500, Sell: true}, ShortName: "Holds", Holds: 0, Starting: 25, SellAtSol: true},
+	{Commodity: Commodity{Name: FIGHTERS, SellPrice: 98, Sell: true}, ShortName: "Fighters", Holds: 0, Starting: 200, SellAtSol: true, OnPlanet: true},
+	{Commodity: Commodity{Name: MINES, SellPrice: 15000, Sell: true}, ShortName: "Mines", Holds: 0, SellAtSol: true, OnPlanet: true},
+	{Commodity: Commodity{Name: GENESIS, SellPrice: 10000, Sell: true}, ShortName: "Genesis", Holds: 0, SellAtSol: true},
 }
 
 func (c *Commodity) GetDef() *CommodityDefinition {

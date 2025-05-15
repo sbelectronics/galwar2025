@@ -146,7 +146,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 	fmt.Printf("                               [Q] Quit to bbs     [U] Starbase maint       \n")
 	fmt.Printf("                               [T] Team Menu                                \n")
 	fmt.Printf("\n")
-	fmt.Printf("Implemented Commands: I, M, P, Q, S, Y\n")
+	fmt.Printf("Implemented Commands: D, F, I, J, L, M, P, Q, S, Y\n")
 }
 
 func (c *ConsoleUI) ExecuteMove() {
@@ -341,6 +341,111 @@ func (c *ConsoleUI) ExecuteBattleGroup(kind string) {
 	}
 }
 
+func (c *ConsoleUI) ExecuteGenesis() {
+	name := c.PromptString("Enter the name of your new planet: ")
+	err := galwar.Planets.UseGenesisDevice(c.Player, c.Player.Sector, name)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+}
+
+func (c *ConsoleUI) PlanetReport(planet *galwar.Planet) {
+	fmt.Printf("Planet report For %s: %s\n", planet.GetName(), time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Print("\n")
+	fmt.Printf(" Items      Prod     # units  In holds\n")
+	fmt.Printf(" =====     ======    =======  ========\n")
+
+	for _, cm := range planet.Inventory {
+		fmt.Printf("%-10s %6d %10d %9d\n", cm.Name, cm.Prod, cm.Quantity, c.Player.GetQuantity(cm.Name))
+	}
+}
+
+func (c *ConsoleUI) ExecutePlanetTakeCargo(commodityName string) {
+	planet, err := galwar.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	wanted := min(c.Player.GetFreeHolds(), planet.GetQuantity(commodityName))
+	amount := c.PromptIntDefault(fmt.Sprintf("Take how much %s [%d] ? ", commodityName, wanted), wanted)
+	err = galwar.Planets.TransferOut(c.Player, c.Player.Sector, commodityName, amount)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+}
+
+func (c *ConsoleUI) ExecutePlanetPutCargo() {
+	input := c.PromptBool("\nTransfer your cargo to planet (Y/N) ? ")
+	if !input {
+		return
+	}
+
+	err := galwar.Planets.TransferIn(c.Player, c.Player.Sector)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+}
+
+func (c *ConsoleUI) ExecutePlanetTransfer(commodityName string) {
+	planet, err := galwar.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	total := c.Player.GetQuantity(commodityName) + planet.GetQuantity(commodityName)
+	amount := c.PromptIntDefault(fmt.Sprintf("You have %d %s available, how many to leave on planet? ", total, commodityName), 0)
+	err = galwar.Planets.TransferSet(c.Player, c.Player.Sector, commodityName, amount)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+}
+
+func (c *ConsoleUI) ExecuteLand() {
+	first := true
+	for {
+		planet, err := galwar.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+		if err != nil {
+			c.PrintError(err)
+			return
+		}
+
+		if first {
+			c.PlanetReport(planet)
+			first = false
+		}
+		command := c.PromptString("\nPlanet Command (?=Help) ? ")
+
+		switch command {
+		case "f":
+			c.ExecutePlanetTransfer(galwar.FIGHTERS)
+		case "1":
+			c.ExecutePlanetTakeCargo(galwar.ORE)
+		case "2":
+			c.ExecutePlanetTakeCargo(galwar.ORGANICS)
+		case "3":
+			c.ExecutePlanetTakeCargo(galwar.EQUIPMENT)
+		case "t":
+			c.ExecutePlanetPutCargo()
+		case "l":
+			return
+		case "v":
+			first = true
+		case "?":
+			fmt.Printf("[F] Fighter transfer\n")
+			fmt.Printf("[1] Take Ore\n")
+			fmt.Printf("[2] Take Organics\n")
+			fmt.Printf("[3] Take Equipment\n")
+			fmt.Printf("[T] Transfer Cargo to Planet\n")
+			fmt.Printf("[L] Leave Planet\n")
+			fmt.Printf("[V] View Planet Production\n")
+		}
+	}
+}
+
 func (c *ConsoleUI) ExecuteCommand() {
 	command := c.PromptString("\nMain Command (?=Help) ? ")
 	switch command {
@@ -350,10 +455,14 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.ExecuteBattleGroup("Mines")
 	case "f":
 		c.ExecuteBattleGroup("Fighters")
+	case "j":
+		c.ExecuteGenesis()
 	case "m":
 		c.ExecuteMove()
 	case "i":
 		c.ExecuteInfo()
+	case "l":
+		c.ExecuteLand()
 	case "p":
 		c.DockPort()
 	case "q":

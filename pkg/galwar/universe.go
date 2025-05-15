@@ -9,6 +9,7 @@ type UniverseType struct {
 	Ports        *PortList
 	Players      *PlayerList
 	Battlegroups *BattlegroupList
+	Planets      *PlanetList
 	Sectors      *[]Sector
 	filename     string
 }
@@ -56,7 +57,7 @@ func (u *UniverseType) GetObjectsInSector(sector int, kind string) []ObjectInter
 	objects := []ObjectInterface{}
 
 	// Be deterministic about the order we display things
-	objLists := []ObjectListInterface{u.Ports, u.Players, u.Battlegroups}
+	objLists := []ObjectListInterface{u.Ports, u.Players, u.Battlegroups, u.Planets}
 	for _, objList := range objLists {
 		if objList == nil {
 			continue
@@ -86,6 +87,10 @@ func (u *UniverseType) RegisterPlayers(players *PlayerList) {
 
 func (u *UniverseType) RegisterBattlegroups(battlegroups *BattlegroupList) {
 	u.Battlegroups = battlegroups
+}
+
+func (u *UniverseType) RegisterPlanets(planets *PlanetList) {
+	u.Planets = planets
 }
 
 func (u *UniverseType) RegisterSectors(sectors *[]Sector) {
