@@ -23,7 +23,7 @@ func main() {
 		}
 	}
 
-	player := galwar.GetPlayer("theplayer@gmail.com")
+	player := galwar.Players.GetByEmail("theplayer@gmail.com")
 	if player == nil {
 		player = galwar.NewPlayer("Defs Sacre", "theplayer@gmail.com")
 	}

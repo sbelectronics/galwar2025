@@ -41,7 +41,7 @@ func (p *Port) GetNameExtra() string {
 }
 
 func (p *Port) GetType() string {
-	return "Port"
+	return TYPE_PORT
 }
 
 func (p *PortList) GetObjectsInSector(sector int) []ObjectInterface {

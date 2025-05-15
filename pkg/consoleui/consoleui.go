@@ -217,7 +217,7 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 	for i, cm := range port.Inventory {
 		canAfford := int(math.Floor(float64(c.Player.GetMoney()) / cm.SellPrice))
 		fmt.Printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
-		choices[fmt.Sprintf("%d", i+1)] = &cm
+		choices[fmt.Sprintf("%d", i+1)] = cm
 	}
 
 	for {
@@ -244,7 +244,7 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 }
 
 func (c *ConsoleUI) DockPort() {
-	ports := galwar.Universe.GetObjectsInSector(c.Player.Sector, "Port")
+	ports := galwar.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PORT)
 	if len(ports) == 0 {
 		fmt.Printf("No ports in this sector\n")
 		return
@@ -323,11 +323,33 @@ func (c *ConsoleUI) ExecuteInfo() {
 	}
 }
 
+func (c *ConsoleUI) ExecuteBattleGroup(kind string) {
+	total := c.Player.GetQuantity(kind)
+	bg, err := galwar.Battlegroups.GetBattlegroup(c.Player, c.Player.Sector, false)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	if bg != nil {
+		total += bg.GetQuantity(kind)
+	}
+	amount := c.PromptInt(fmt.Sprintf("You have %d total %s. How many do you want to defend this sector? ", total, kind))
+	err = galwar.Battlegroups.AdjustBattlegroup(c.Player, c.Player.Sector, kind, amount)
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+}
+
 func (c *ConsoleUI) ExecuteCommand() {
 	command := c.PromptString("\nMain Command (?=Help) ? ")
 	switch command {
 	case "?":
 		c.ExecuteHelp()
+	case "d":
+		c.ExecuteBattleGroup("Mines")
+	case "f":
+		c.ExecuteBattleGroup("Fighters")
 	case "m":
 		c.ExecuteMove()
 	case "i":

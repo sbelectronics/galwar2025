@@ -1,5 +1,7 @@
 package galwar
 
+import ()
+
 // ObjectBase - Base object structure for things that implment ObjectInterface
 // These are things that are located in a sector.
 type ObjectBase struct {
@@ -10,7 +12,7 @@ type ObjectBase struct {
 // InventoryBase - Base inventory structure for things that implement InventoryInterface
 // These are things that have an inventory of commodities and money.
 type InventoryBase struct {
-	Inventory []Commodity
+	Inventory []*Commodity
 	Money     int
 }
 
@@ -26,38 +28,56 @@ func (o *ObjectBase) MoveTo(sector int) {
 	o.Sector = sector
 }
 
-func (p *InventoryBase) GetCommodities() []Commodity {
+func (p *InventoryBase) HasInventory() bool {
+	for _, cm := range p.Inventory {
+		if cm.Quantity > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *InventoryBase) GetCommodities() []*Commodity {
 	return p.Inventory
 }
 
-func (p *InventoryBase) GetQuantity(name string) int {
-	for _, c := range p.Inventory {
-		if c.Name == name {
-			return c.Quantity
-		}
-	}
-	return 0
-}
-
 func (p *InventoryBase) GetCommodity(name string) *Commodity {
-	for _, c := range p.Inventory {
-		if c.Name == name {
-			return &c
+	for _, cm := range p.Inventory {
+		if cm.Name == name {
+			return cm
 		}
 	}
 	return nil
 }
 
+func (p *InventoryBase) GetQuantity(name string) int {
+	cm := p.GetCommodity(name)
+	if cm != nil {
+		return cm.Quantity
+	}
+	return 0
+}
+
 func (p *InventoryBase) AdjustQuantity(name string, amount int) {
-	for i, c := range p.Inventory {
-		if c.Name == name {
-			p.Inventory[i].Quantity += amount
-			return
-		}
+	cm := p.GetCommodity(name)
+	if cm != nil {
+		cm.Quantity += amount
+		return
+	}
+	if amount > 0 {
+		p.SetQuantity(name, amount)
+	}
+}
+
+func (p *InventoryBase) SetQuantity(name string, amount int) {
+	cm := p.GetCommodity(name)
+	if cm != nil {
+		cm.Quantity = amount
+		return
 	}
 	if amount > 0 {
 		cm := Commodity{Name: name, Quantity: amount} // DANGER - may miss other fields
-		p.Inventory = append(p.Inventory, cm)
+		p.Inventory = append(p.Inventory, &cm)
 	}
 }
 

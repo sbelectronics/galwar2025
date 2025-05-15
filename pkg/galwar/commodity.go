@@ -29,8 +29,8 @@ var TradeGoods = []CommodityDefinition{
 }
 
 func (c *Commodity) GetDef() *CommodityDefinition {
-	for i, def := range TradeGoods {
-		if c.Name == def.Name {
+	for i := range TradeGoods {
+		if c.Name == TradeGoods[i].Name {
 			return &TradeGoods[i]
 		}
 	}

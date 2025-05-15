@@ -23,7 +23,7 @@ func AddPortToSector(sectorNum int) {
 			}
 			cm := tg.Commodity
 			cm.Sell = true
-			p.Inventory = append(p.Inventory, cm)
+			p.Inventory = append(p.Inventory, &cm)
 		}
 		break
 	default:
@@ -38,7 +38,7 @@ func AddPortToSector(sectorNum int) {
 			cm.BuyPrice = float64(tg.BuyPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0   // up to 10% difference
 			cm.SellPrice = float64(tg.SellPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0 // up to 10% difference
 			cm.Sell = (i == toSell)
-			p.Inventory = append(p.Inventory, cm)
+			p.Inventory = append(p.Inventory, &cm)
 		}
 		break
 	}

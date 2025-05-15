@@ -17,15 +17,6 @@ type PlayerList struct {
 	Players []*Player
 }
 
-func GetPlayer(email string) *Player {
-	for _, p := range Players.Players {
-		if p.Email == email {
-			return p
-		}
-	}
-	return nil
-}
-
 func NewPlayer(name string, email string) *Player {
 	p := &Player{
 		Id:    PlayerId(uuid.New().String()),
@@ -35,8 +26,7 @@ func NewPlayer(name string, email string) *Player {
 			Sector: 1,
 		},
 		InventoryBase: InventoryBase{
-			Inventory: []Commodity{},
-			Money:     1000,
+			Money: 35000,
 		},
 	}
 
@@ -45,7 +35,7 @@ func NewPlayer(name string, email string) *Player {
 			Name:     tg.Name,
 			Quantity: tg.Starting,
 		}
-		p.Inventory = append(p.Inventory, cm)
+		p.Inventory = append(p.Inventory, &cm)
 	}
 
 	Players.Players = append(Players.Players, p)
@@ -58,7 +48,7 @@ func (p *Player) GetNameExtra() string {
 }
 
 func (p *Player) GetType() string {
-	return "Player"
+	return TYPE_PLAYER
 }
 
 func (p *Player) GetFreeHolds() int {
@@ -77,6 +67,24 @@ func (p *PlayerList) GetObjectsInSector(sector int) []ObjectInterface {
 		}
 	}
 	return playersInSector
+}
+
+func (p *PlayerList) GetByEmail(email string) *Player {
+	for _, p := range p.Players {
+		if p.Email == email {
+			return p
+		}
+	}
+	return nil
+}
+
+func (p *PlayerList) GetById(id PlayerId) *Player {
+	for _, p := range p.Players {
+		if p.Id == id {
+			return p
+		}
+	}
+	return nil
 }
 
 var Players = PlayerList{}

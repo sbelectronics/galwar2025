@@ -10,6 +10,7 @@ type ObjectInterface interface {
 	GetNameExtra() string
 	GetType() string
 	GetSector() int
+	HasInventory() bool
 }
 
 type ObjectListInterface interface {
@@ -19,7 +20,7 @@ type ObjectListInterface interface {
 type PortInterface interface {
 	GetName() string
 	GetNameExtra() string
-	GetCommodities() []Commodity
+	GetCommodities() []*Commodity
 	GetQuantity(name string) int
 	GetCommodity(name string) *Commodity
 	AdjustQuantity(name string, amount int)
@@ -33,3 +34,9 @@ type InventoryInterface interface {
 	GetMoney() int
 	AdjustMoney(amount int)
 }
+
+const (
+	TYPE_BATTLEGROUP = "Battlegroup"
+	TYPE_PORT        = "Port"
+	TYPE_PLAYER      = "Player"
+)

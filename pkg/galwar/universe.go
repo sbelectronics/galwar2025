@@ -56,8 +56,7 @@ func (u *UniverseType) GetObjectsInSector(sector int, kind string) []ObjectInter
 	objects := []ObjectInterface{}
 
 	// Be deterministic about the order we display things
-	objLists := []ObjectListInterface{u.Ports, u.Players}
-
+	objLists := []ObjectListInterface{u.Ports, u.Players, u.Battlegroups}
 	for _, objList := range objLists {
 		if objList == nil {
 			continue

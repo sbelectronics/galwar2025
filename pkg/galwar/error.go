@@ -11,6 +11,9 @@ const (
 	ErrNegativeQuantity
 	ErrNotEnoughMoney
 	ErrNotEnoughQuantity
+	ErrNotOwner
+	ErrInvalidType
+	ErrFedRestricted
 )
 
 var GameErrorCodeNames = map[GameErrorCode]string{
@@ -18,6 +21,9 @@ var GameErrorCodeNames = map[GameErrorCode]string{
 	ErrNegativeQuantity:  "Negative quantity",
 	ErrNotEnoughMoney:    "Not enough money",
 	ErrNotEnoughQuantity: "Not enough quantity",
+	ErrNotOwner:          "Not owner",
+	ErrInvalidType:       "Invalid type",
+	ErrFedRestricted:     "Federation restricted",
 }
 
 type GameError struct {
