@@ -27,8 +27,7 @@ func AddPortToSector(sectorNum int) {
 		}
 		break
 	default:
-		toSell := rand.Intn(len(TradeGoods))
-		for i, tg := range TradeGoods {
+		for _, tg := range TradeGoods {
 			if !tg.SellAtPorts {
 				continue
 			}
@@ -37,8 +36,11 @@ func AddPortToSector(sectorNum int) {
 			cm.Quantity = cm.Prod * 10
 			cm.BuyPrice = float64(tg.BuyPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0   // up to 10% difference
 			cm.SellPrice = float64(tg.SellPrice) * (float64(rand.Intn(10)) + 100.0) / 100.0 // up to 10% difference
-			cm.Sell = (i == toSell)
 			p.Inventory = append(p.Inventory, &cm)
+		}
+		if len(p.Inventory) > 0 {
+			toSell := rand.Intn(len(p.Inventory))
+			p.Inventory[toSell].Sell = true
 		}
 		break
 	}
