@@ -1,6 +1,8 @@
 package galwar
 
-import ()
+import (
+	"log"
+)
 
 // ObjectBase - Base object structure for things that implment ObjectInterface
 // These are things that are located in a sector.
@@ -58,25 +60,53 @@ func (p *InventoryBase) GetQuantity(name string) int {
 	return 0
 }
 
+// GetFreeHolds returns the number of unoccupied cargo holds. Lives on
+// InventoryBase (not Player) so the engine can enforce hold limits through
+// InventoryInterface.
+func (p *InventoryBase) GetFreeHolds() int {
+	freeHolds := p.GetQuantity(HOLDS)
+	for _, c := range p.Inventory {
+		freeHolds -= c.GetHoldsUsed()
+	}
+	return freeHolds
+}
+
+// AdjustQuantity changes a commodity count by a delta. Quantities are clamped
+// at zero: callers are required to validate before mutating, so a clamp
+// firing indicates a bug in the caller and is logged loudly.
 func (p *InventoryBase) AdjustQuantity(name string, amount int) {
 	cm := p.GetCommodity(name)
 	if cm != nil {
 		cm.Quantity += amount
+		if cm.Quantity < 0 {
+			log.Printf("BUG: quantity of %s went negative (%d); clamped to 0 - caller failed to validate", name, cm.Quantity)
+			cm.Quantity = 0
+		}
 		return
 	}
 	if amount > 0 {
 		p.SetQuantity(name, amount)
+	} else if amount < 0 {
+		log.Printf("BUG: attempt to remove %d of missing commodity %s ignored - caller failed to validate", -amount, name)
 	}
 }
 
 func (p *InventoryBase) SetQuantity(name string, amount int) {
+	if amount < 0 {
+		log.Printf("BUG: SetQuantity(%s, %d) clamped to 0 - caller failed to validate", name, amount)
+		amount = 0
+	}
 	cm := p.GetCommodity(name)
 	if cm != nil {
 		cm.Quantity = amount
 		return
 	}
 	if amount > 0 {
-		cm := Commodity{Name: name, Quantity: amount} // DANGER - may miss other fields
+		cm := Commodity{Name: name, Quantity: amount}
+		if def := FindCommodityDef(name); def != nil {
+			cm.BuyPrice = def.BuyPrice
+			cm.SellPrice = def.SellPrice
+		}
 		p.Inventory = append(p.Inventory, &cm)
 	}
 }
@@ -87,4 +117,8 @@ func (p *InventoryBase) GetMoney() int {
 
 func (p *InventoryBase) AdjustMoney(amount int) {
 	p.Money += amount
+	if p.Money < 0 {
+		log.Printf("BUG: money went negative (%d); clamped to 0 - caller failed to validate", p.Money)
+		p.Money = 0
+	}
 }

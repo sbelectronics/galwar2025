@@ -2,19 +2,22 @@ package galwar
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Planet struct {
 	Owner PlayerId
 	ObjectBase
 	InventoryBase
+
+	universe *UniverseType // back-reference for owner lookup; set by wire()/NewPlanet, not serialized
 }
 
 type PlanetList struct {
 	Planets []*Planet
 }
 
-func NewPlanet(owner PlayerId, sector int, name string) *Planet {
+func (u *UniverseType) NewPlanet(owner PlayerId, sector int, name string) *Planet {
 	p := &Planet{
 		Owner: owner,
 		ObjectBase: ObjectBase{
@@ -22,6 +25,7 @@ func NewPlanet(owner PlayerId, sector int, name string) *Planet {
 			Sector: sector,
 		},
 		InventoryBase: InventoryBase{},
+		universe:      u,
 	}
 
 	for _, tg := range TradeGoods {
@@ -35,15 +39,16 @@ func NewPlanet(owner PlayerId, sector int, name string) *Planet {
 		p.Inventory = append(p.Inventory, &cm)
 	}
 
-	Planets.AddPlanet(p)
+	u.Planets.AddPlanet(p)
 
 	return p
 }
 
 func (p *Planet) GetOwnerPlayer() *Player {
-	player := Players.GetById(p.Owner)
-	if player != nil {
-		return player
+	if p.universe != nil {
+		if player := p.universe.Players.GetById(p.Owner); player != nil {
+			return player
+		}
 	}
 	return &Player{ObjectBase: ObjectBase{Name: "Unknown"}}
 }
@@ -70,25 +75,38 @@ func (p *PlanetList) GetObjectsInSector(sector int) []ObjectInterface {
 	return planetsInSector
 }
 
-// GetPlanet
-// If !create and no group exists, will return nil and no error
+// GetPlanet finds the caller's planet in a sector. It examines every planet
+// in the sector before deciding, rather than judging by the first one found.
+// If flags does not include MUST_EXIST and no planet exists, returns
+// (nil, nil).
 
 func (p *PlanetList) GetPlanet(player *Player, sector int, flags int) (*Planet, error) {
-	// TODO: planetlock
-	objs := p.GetObjectsInSector(sector)
-	for _, obj := range objs {
-		planet, ok := obj.(*Planet)
-		if !ok {
-			return nil, NewGameError(ErrInvalidType, "Object is not a Planet")
+	var mine, foreign *Planet
+	for _, planet := range p.Planets {
+		if planet.Sector != sector {
+			continue
 		}
 		if planet.Owner == player.Id {
-			if flags&MUST_NOT_EXIST != 0 {
-				return nil, NewGameError(ErrAlreadyExists, "You already own a planet in this sector.")
-			}
-			return planet, nil
-		} else {
-			return nil, NewGameError(ErrNotOwner, "There is a Planet in this sector, but you don't own it.")
+			mine = planet
+		} else if foreign == nil {
+			foreign = planet
 		}
+	}
+	if flags&MUST_NOT_EXIST != 0 {
+		if mine != nil {
+			return nil, NewGameError(ErrAlreadyExists, "You already own a planet in this sector.")
+		}
+		if foreign != nil {
+			// one planet per sector, as in the original
+			return nil, NewGameError(ErrAlreadyExists, "There is already a planet in this sector.")
+		}
+		return nil, nil
+	}
+	if mine != nil {
+		return mine, nil
+	}
+	if foreign != nil {
+		return nil, NewGameError(ErrNotOwner, "There is a Planet in this sector, but you don't own it.")
 	}
 	if flags&MUST_EXIST != 0 {
 		return nil, NewGameError(ErrNotFound, "No planet found in this sector.")
@@ -96,15 +114,15 @@ func (p *PlanetList) GetPlanet(player *Player, sector int, flags int) (*Planet, 
 	return nil, nil
 }
 
-func (p *PlanetList) UseGenesisDevice(player *Player, sector int, name string) error {
-	// TODO: planetlock, playerlock
-	if sector < 10 {
+func (u *UniverseType) UseGenesisDevice(player *Player, sector int, name string) error {
+	if sector <= 10 {
 		return NewGameError(ErrFedRestricted, "Galactic law prevents anyone except the federation from creating planets in sectors 1 through 10.")
 	}
-	_, err := p.GetPlanet(player, sector, MUST_NOT_EXIST)
+	_, err := u.Planets.GetPlanet(player, sector, MUST_NOT_EXIST)
 	if err != nil {
 		return err
 	}
+	name = strings.TrimSpace(name)
 	if name == "" {
 		return NewGameError(ErrInvalidName, "You must provide a name for the planet.")
 	}
@@ -112,13 +130,18 @@ func (p *PlanetList) UseGenesisDevice(player *Player, sector int, name string) e
 		return NewGameError(ErrNotEnoughQuantity, "You don't have a Genesis Device.")
 	}
 	player.AdjustQuantity(GENESIS, -1)
-	_ = NewPlanet(player.Id, sector, name)
+	_ = u.NewPlanet(player.Id, sector, name)
 	return nil
 }
 
-func (p *PlanetList) TransferSet(player *Player, sector int, commodityName string, amount int) error {
-	// TODO: planetlock, playerlock
-	planet, err := p.GetPlanet(player, sector, MUST_EXIST)
+// TransferSet sets the planet-side quantity of a commodity, moving the
+// difference to or from the player.
+
+func (u *UniverseType) TransferSet(player *Player, sector int, commodityName string, amount int) error {
+	if amount < 0 {
+		return NewGameError(ErrNegativeQuantity, "You can't leave a negative quantity.")
+	}
+	planet, err := u.Planets.GetPlanet(player, sector, MUST_EXIST)
 	if err != nil {
 		return err
 	}
@@ -131,9 +154,11 @@ func (p *PlanetList) TransferSet(player *Player, sector int, commodityName strin
 	return nil
 }
 
-func (p *PlanetList) TransferOut(player *Player, sector int, commodityName string, amount int) error {
-	// TODO: planetlock, playerlock
-	planet, err := p.GetPlanet(player, sector, MUST_EXIST)
+func (u *UniverseType) TransferOut(player *Player, sector int, commodityName string, amount int) error {
+	if amount < 0 {
+		return NewGameError(ErrNegativeQuantity, "You can't take a negative quantity.")
+	}
+	planet, err := u.Planets.GetPlanet(player, sector, MUST_EXIST)
 	if err != nil {
 		return err
 	}
@@ -148,9 +173,8 @@ func (p *PlanetList) TransferOut(player *Player, sector int, commodityName strin
 	return nil
 }
 
-func (p *PlanetList) TransferIn(player *Player, sector int) error {
-	// TODO: planetlock, playerlock
-	planet, err := p.GetPlanet(player, sector, MUST_EXIST)
+func (u *UniverseType) TransferIn(player *Player, sector int) error {
+	planet, err := u.Planets.GetPlanet(player, sector, MUST_EXIST)
 	if err != nil {
 		return err
 	}
@@ -168,22 +192,14 @@ func (p *PlanetList) TransferIn(player *Player, sector int) error {
 }
 
 func (p *PlanetList) AddPlanet(planet *Planet) {
-	// TODO: lock
 	p.Planets = append(p.Planets, planet)
 }
 
 func (p *PlanetList) RemovePlanet(planet *Planet) {
-	// TODO: lock
 	for i, pl := range p.Planets {
 		if pl == planet {
 			p.Planets = append(p.Planets[:i], p.Planets[i+1:]...)
 			break
 		}
 	}
-}
-
-var Planets = PlanetList{}
-
-func init() {
-	Universe.RegisterPlanets(&Planets)
 }

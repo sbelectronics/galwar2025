@@ -17,7 +17,7 @@ type PlayerList struct {
 	Players []*Player
 }
 
-func NewPlayer(name string, email string) *Player {
+func (u *UniverseType) NewPlayer(name string, email string) *Player {
 	p := &Player{
 		Id:    PlayerId(uuid.New().String()),
 		Email: email,
@@ -38,7 +38,7 @@ func NewPlayer(name string, email string) *Player {
 		p.Inventory = append(p.Inventory, &cm)
 	}
 
-	Players.Players = append(Players.Players, p)
+	u.Players.Players = append(u.Players.Players, p)
 
 	return p
 }
@@ -49,14 +49,6 @@ func (p *Player) GetNameExtra() string {
 
 func (p *Player) GetType() string {
 	return TYPE_PLAYER
-}
-
-func (p *Player) GetFreeHolds() int {
-	freeHolds := p.GetQuantity("Cargo Holds")
-	for _, c := range p.Inventory {
-		freeHolds -= c.GetHoldsUsed()
-	}
-	return freeHolds
 }
 
 func (p *PlayerList) GetObjectsInSector(sector int) []ObjectInterface {
@@ -85,10 +77,4 @@ func (p *PlayerList) GetById(id PlayerId) *Player {
 		}
 	}
 	return nil
-}
-
-var Players = PlayerList{}
-
-func init() {
-	Universe.RegisterPlayers(&Players)
 }

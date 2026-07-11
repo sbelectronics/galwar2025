@@ -9,13 +9,15 @@ type Battlegroup struct {
 	Owner PlayerId
 	ObjectBase
 	InventoryBase
+
+	universe *UniverseType // back-reference for owner lookup; set by wire()/NewBattlegroup, not serialized
 }
 
 type BattlegroupList struct {
 	Battlegroups []*Battlegroup
 }
 
-func NewBattlegroup(owner PlayerId, sector int) *Battlegroup {
+func (u *UniverseType) NewBattlegroup(owner PlayerId, sector int) *Battlegroup {
 	b := &Battlegroup{
 		Owner: owner,
 		ObjectBase: ObjectBase{
@@ -23,17 +25,19 @@ func NewBattlegroup(owner PlayerId, sector int) *Battlegroup {
 			Sector: sector,
 		},
 		InventoryBase: InventoryBase{},
+		universe:      u,
 	}
 
-	Battlegroups.AddBattlegroup(b)
+	u.Battlegroups.AddBattlegroup(b)
 
 	return b
 }
 
 func (b *Battlegroup) GetOwnerPlayer() *Player {
-	player := Players.GetById(b.Owner)
-	if player != nil {
-		return player
+	if b.universe != nil {
+		if player := b.universe.Players.GetById(b.Owner); player != nil {
+			return player
+		}
 	}
 	return &Player{ObjectBase: ObjectBase{Name: "Unknown"}}
 }
@@ -66,70 +70,71 @@ func (b *BattlegroupList) GetObjectsInSector(sector int) []ObjectInterface {
 	return bgsInSector
 }
 
-// GetBattlegroup
-// If !create and no group exists, will return nil and no error
+// GetBattlegroup finds the caller's battlegroup in a sector, examining every
+// battlegroup there before deciding. One defense force per sector, as in the
+// original: if someone else already defends the sector, you can't.
+// If !create and no group exists, will return nil and no error.
 
-func (b *BattlegroupList) GetBattlegroup(player *Player, sector int, create bool) (*Battlegroup, error) {
-	// TODO: bglock
-	objs := b.GetObjectsInSector(sector)
-	for _, obj := range objs {
-		bg, ok := obj.(*Battlegroup)
-		if !ok {
-			return nil, NewGameError(ErrInvalidType, "Object is not a Battlegroup")
+func (u *UniverseType) GetBattlegroup(player *Player, sector int, create bool) (*Battlegroup, error) {
+	var foreign *Battlegroup
+	for _, bg := range u.Battlegroups.Battlegroups {
+		if bg.Sector != sector {
+			continue
 		}
 		if bg.Owner == player.Id {
 			return bg, nil
-		} else {
-			return nil, NewGameError(ErrNotOwner, "There is a battlegroup in this sector, but you don't own it.")
+		}
+		if foreign == nil {
+			foreign = bg
 		}
 	}
+	if foreign != nil {
+		return nil, NewGameError(ErrNotOwner, "There is a battlegroup in this sector, but you don't own it.")
+	}
 	if create {
-		return NewBattlegroup(player.Id, sector), nil
+		return u.NewBattlegroup(player.Id, sector), nil
 	}
 	return nil, nil
 }
 
-func (b *BattlegroupList) AdjustBattlegroup(player *Player, sector int, kind string, amount int) error {
-	// TODO: bglock, playerlock
-	if sector < 10 {
+// AdjustBattlegroup sets the sector-side quantity of fighters or mines,
+// moving the difference to or from the player.
+
+func (u *UniverseType) AdjustBattlegroup(player *Player, sector int, kind string, amount int) error {
+	if amount < 0 {
+		return NewGameError(ErrNegativeQuantity, "You can't leave a negative quantity.")
+	}
+	if sector <= 10 {
 		return NewGameError(ErrFedRestricted, "Galactic law prevents anyone except the federation from leaving fighters or mines in sectors 1 through 10.")
 	}
-	bg, err := b.GetBattlegroup(player, sector, true)
+	bg, err := u.GetBattlegroup(player, sector, true)
 	if err != nil {
 		return err
 	}
 	total := bg.GetQuantity(kind) + player.GetQuantity(kind)
 	if amount > total {
 		if !bg.HasInventory() {
-			b.RemoveBattlegroup(bg)
+			u.Battlegroups.RemoveBattlegroup(bg)
 		}
 		return NewGameError(ErrNotEnoughQuantity, fmt.Sprintf("You don't have that many %s!", kind))
 	}
 	bg.SetQuantity(kind, amount)
 	player.SetQuantity(kind, total-amount)
 	if !bg.HasInventory() {
-		b.RemoveBattlegroup(bg)
+		u.Battlegroups.RemoveBattlegroup(bg)
 	}
 	return nil
 }
 
 func (b *BattlegroupList) AddBattlegroup(bg *Battlegroup) {
-	// TODO: lock
 	b.Battlegroups = append(b.Battlegroups, bg)
 }
 
 func (b *BattlegroupList) RemoveBattlegroup(bg *Battlegroup) {
-	// TODO: lock
 	for i, battlegroup := range b.Battlegroups {
 		if battlegroup == bg {
 			b.Battlegroups = append(b.Battlegroups[:i], b.Battlegroups[i+1:]...)
 			break
 		}
 	}
-}
-
-var Battlegroups = BattlegroupList{}
-
-func init() {
-	Universe.RegisterBattlegroups(&Battlegroups)
 }
