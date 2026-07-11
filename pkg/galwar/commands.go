@@ -8,6 +8,10 @@ package galwar
 // MovePlayer moves a player to an adjacent sector, validating the warp.
 
 func (u *UniverseType) MovePlayer(p *Player, dest int) error {
+	if p.Sector < 1 || p.Sector >= len(u.Sectors) {
+		// validate() guards the load path; this guards programmatic callers
+		return NewGameError(ErrNotFound, "You are in an invalid sector!")
+	}
 	if dest < 1 || dest >= len(u.Sectors) {
 		return NewGameError(ErrNotFound, "There is no such sector!")
 	}

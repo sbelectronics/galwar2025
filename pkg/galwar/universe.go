@@ -20,7 +20,7 @@ type UniverseType struct {
 	Sectors      []Sector
 
 	filename string
-	tasks    chan task
+	tasks    chan *task
 }
 
 func NewUniverse() *UniverseType {
@@ -58,7 +58,20 @@ func (u *UniverseType) Save() error {
 		os.Remove(tmpName)
 		return err
 	}
+	// Flush to disk before the rename, so a crash immediately afterward
+	// can't leave an empty or truncated file behind the new name.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
 	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	// CreateTemp makes the file 0600; restore the 0644 the universe file has
+	// always had so group/other readability doesn't silently change.
+	if err := os.Chmod(tmpName, 0644); err != nil {
 		os.Remove(tmpName)
 		return err
 	}
@@ -109,8 +122,19 @@ func (u *UniverseType) validate() error {
 	}
 	maxSec := len(u.Sectors) - 1
 
+	for i := range u.Sectors {
+		for _, w := range u.Sectors[i].Warps {
+			if w < 1 || w > maxSec {
+				return fmt.Errorf("sector %d has a warp to invalid sector %d", i, w)
+			}
+		}
+	}
+
 	checkInventory := func(kind, name string, inv []*Commodity) error {
 		for _, c := range inv {
+			if c == nil {
+				return fmt.Errorf("%s %q has a nil commodity entry", kind, name)
+			}
 			if FindCommodityDef(c.Name) == nil {
 				return fmt.Errorf("%s %q has unknown commodity %q", kind, name, c.Name)
 			}
@@ -180,7 +204,7 @@ func (u *UniverseType) GetObjectsInSector(sector int, kind string) []ObjectInter
 }
 
 // Fun Fact: In 1986, My friend Greg wrote the Galwar Autopilot for me.
-// In 2025, I just hit CTRL-I and asked Copilot to implement single sourch
+// In 2025, I just hit CTRL-I and asked Copilot to implement single source
 // shortest paths. The following code is verbatim from the AI:
 // (2026 update: moved from Sector to UniverseType when the global Sectors
 // slice was eliminated; the algorithm is unchanged.)

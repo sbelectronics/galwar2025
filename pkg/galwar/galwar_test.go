@@ -290,6 +290,70 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	}
 }
 
+func TestActorPropagatesPanics(t *testing.T) {
+	u := NewUniverse()
+	player := u.NewPlayer("Test", "t@example.com")
+	u.Start()
+
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("panic in a command was not re-raised on the caller")
+			}
+		}()
+		u.Do(func() {
+			panic("boom")
+		})
+	}()
+
+	// the actor must survive a panicking command
+	var money int
+	u.Do(func() { money = player.Money })
+	if money != 35000 {
+		t.Errorf("actor dead or state wrong after panic: money = %d", money)
+	}
+
+	// DoErr must not return nil on a panic; it must panic too
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("DoErr swallowed a panic and would have returned nil")
+			}
+		}()
+		_ = u.DoErr(func() error {
+			panic("boom")
+		})
+	}()
+}
+
+func TestValidateRejectsBadData(t *testing.T) {
+	// out-of-range warp
+	u := NewUniverse()
+	u.Generate(50)
+	u.Sectors[10].Warps = append(u.Sectors[10].Warps, 9999)
+	if err := u.validate(); err == nil {
+		t.Errorf("validate accepted a warp to a nonexistent sector")
+	}
+
+	// nil commodity entry
+	u2 := NewUniverse()
+	u2.Generate(50)
+	player := u2.NewPlayer("Test", "t@example.com")
+	player.Inventory = append(player.Inventory, nil)
+	if err := u2.validate(); err == nil {
+		t.Errorf("validate accepted a nil commodity entry")
+	}
+
+	// unknown commodity name
+	u3 := NewUniverse()
+	u3.Generate(50)
+	player3 := u3.NewPlayer("Test", "t@example.com")
+	player3.Inventory = append(player3.Inventory, &Commodity{Name: "Flux Capacitors", Quantity: 1})
+	if err := u3.validate(); err == nil {
+		t.Errorf("validate accepted an unknown commodity")
+	}
+}
+
 func TestActorSerializesCommands(t *testing.T) {
 	u := NewUniverse()
 	player := u.NewPlayer("Test", "t@example.com")
