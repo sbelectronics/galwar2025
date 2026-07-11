@@ -76,6 +76,9 @@ func main() {
 	persister := galwar.NewPersister(u, store)
 	persister.Start()
 
+	maint := galwar.NewMaintenanceDaemon(u)
+	maint.Start()
+
 	var player *galwar.Player
 	u.Do(func() {
 		player = u.Players.GetByEmail("theplayer@gmail.com")
@@ -100,5 +103,6 @@ func main() {
 		fmt.Printf("\nInterrupted - saving universe...\n")
 	}
 
+	maint.Stop()
 	persister.Stop() // final flush
 }

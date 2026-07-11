@@ -17,7 +17,10 @@ import (
 // scale and flush rate. If it ever becomes a bottleneck, the upgrade path is
 // per-entity dirty tracking, not a schema change.
 
-const schemaVersion = "1"
+const schemaVersion = "2"
+
+// migration from v1 (M2): commodities gained a restock clock
+const schemaV1toV2 = `ALTER TABLE commodities ADD COLUMN last_restock INTEGER NOT NULL DEFAULT 0;`
 
 const storeSchema = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -57,15 +60,16 @@ CREATE TABLE IF NOT EXISTS battlegroups (
 	money  INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS commodities (
-	owner_type TEXT NOT NULL,
-	owner_id   TEXT NOT NULL,
-	pos        INTEGER NOT NULL,
-	name       TEXT NOT NULL,
-	prod       INTEGER NOT NULL,
-	quantity   INTEGER NOT NULL,
-	buy_price  REAL NOT NULL,
-	sell_price REAL NOT NULL,
-	sell       INTEGER NOT NULL,
+	owner_type   TEXT NOT NULL,
+	owner_id     TEXT NOT NULL,
+	pos          INTEGER NOT NULL,
+	name         TEXT NOT NULL,
+	prod         INTEGER NOT NULL,
+	quantity     INTEGER NOT NULL,
+	buy_price    REAL NOT NULL,
+	sell_price   REAL NOT NULL,
+	sell         INTEGER NOT NULL,
+	last_restock INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (owner_type, owner_id, pos)
 );
 `
@@ -103,6 +107,28 @@ func OpenStore(path string) (*Store, error) {
 	case err != nil:
 		db.Close()
 		return nil, err
+	case v == "1":
+		// SQLite DDL is transactional: the schema change and the version
+		// bump commit together, so a failure can't leave the column present
+		// with the version still reading 1 (which would brick the next open)
+		err := func() error {
+			tx, err := db.Begin()
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			if _, err := tx.Exec(schemaV1toV2); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE meta SET value=? WHERE key='schema_version'`, schemaVersion); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}()
+		if err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrating %s from schema v1: %w", path, err)
+		}
 	case v != schemaVersion:
 		db.Close()
 		return nil, fmt.Errorf("database %s has schema version %s; this build supports %s", path, v, schemaVersion)
@@ -189,7 +215,7 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 		}
 	}
 
-	insCommodity, err := tx.Prepare(`INSERT INTO commodities (owner_type, owner_id, pos, name, prod, quantity, buy_price, sell_price, sell) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	insCommodity, err := tx.Prepare(`INSERT INTO commodities (owner_type, owner_id, pos, name, prod, quantity, buy_price, sell_price, sell, last_restock) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -198,7 +224,7 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 		if c.sell {
 			sell = 1
 		}
-		if _, err := insCommodity.Exec(c.ownerType, c.ownerID, c.pos, c.name, c.prod, c.quantity, c.buyPrice, c.sellPrice, sell); err != nil {
+		if _, err := insCommodity.Exec(c.ownerType, c.ownerID, c.pos, c.name, c.prod, c.quantity, c.buyPrice, c.sellPrice, sell, c.lastRestock); err != nil {
 			return err
 		}
 	}
@@ -230,7 +256,7 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 	// commodities, grouped by owner
 	type invKey struct{ ownerType, ownerID string }
 	inventories := map[invKey][]*Commodity{}
-	rows, err := s.db.Query(`SELECT owner_type, owner_id, name, prod, quantity, buy_price, sell_price, sell FROM commodities ORDER BY owner_type, owner_id, pos`)
+	rows, err := s.db.Query(`SELECT owner_type, owner_id, name, prod, quantity, buy_price, sell_price, sell, last_restock FROM commodities ORDER BY owner_type, owner_id, pos`)
 	if err != nil {
 		return false, err
 	}
@@ -238,7 +264,7 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 		var k invKey
 		var c Commodity
 		var sell int
-		if err := rows.Scan(&k.ownerType, &k.ownerID, &c.Name, &c.Prod, &c.Quantity, &c.BuyPrice, &c.SellPrice, &sell); err != nil {
+		if err := rows.Scan(&k.ownerType, &k.ownerID, &c.Name, &c.Prod, &c.Quantity, &c.BuyPrice, &c.SellPrice, &sell, &c.LastRestock); err != nil {
 			rows.Close()
 			return false, err
 		}
@@ -391,6 +417,7 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 	}
 
 	u.wire()
+	u.upgrade()
 	if err := u.validate(); err != nil {
 		return false, err
 	}

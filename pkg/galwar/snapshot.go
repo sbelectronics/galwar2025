@@ -38,15 +38,16 @@ type battlegroupRow struct {
 }
 
 type commodityRow struct {
-	ownerType string
-	ownerID   string
-	pos       int
-	name      string
-	prod      int
-	quantity  int
-	buyPrice  float64
-	sellPrice float64
-	sell      bool
+	ownerType   string
+	ownerID     string
+	pos         int
+	name        string
+	prod        int
+	quantity    int
+	buyPrice    float64
+	sellPrice   float64
+	sell        bool
+	lastRestock int64
 }
 
 type Snapshot struct {
@@ -63,15 +64,16 @@ type Snapshot struct {
 func snapCommodities(rows *[]commodityRow, ownerType string, ownerID string, inv []*Commodity) {
 	for pos, c := range inv {
 		*rows = append(*rows, commodityRow{
-			ownerType: ownerType,
-			ownerID:   ownerID,
-			pos:       pos,
-			name:      c.Name,
-			prod:      c.Prod,
-			quantity:  c.Quantity,
-			buyPrice:  c.BuyPrice,
-			sellPrice: c.SellPrice,
-			sell:      c.Sell,
+			ownerType:   ownerType,
+			ownerID:     ownerID,
+			pos:         pos,
+			name:        c.Name,
+			prod:        c.Prod,
+			quantity:    c.Quantity,
+			buyPrice:    c.BuyPrice,
+			sellPrice:   c.SellPrice,
+			sell:        c.Sell,
+			lastRestock: c.LastRestock,
 		})
 	}
 }

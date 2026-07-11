@@ -2,6 +2,7 @@ package galwar
 
 import (
 	"log"
+	"sync"
 	"time"
 )
 
@@ -17,11 +18,13 @@ import (
 type Persister struct {
 	Interval time.Duration
 
-	u     *UniverseType
-	store *Store
-	kick  chan struct{}
-	quit  chan struct{}
-	done  chan struct{}
+	u        *UniverseType
+	store    *Store
+	kick     chan struct{}
+	quit     chan struct{}
+	done     chan struct{}
+	started  bool
+	stopOnce sync.Once
 }
 
 func NewPersister(u *UniverseType, store *Store) *Persister {
@@ -35,7 +38,13 @@ func NewPersister(u *UniverseType, store *Store) *Persister {
 	}
 }
 
+// Start and Stop are idempotent: a second Start is a no-op, Stop without
+// Start returns immediately, and a second Stop just waits again.
 func (p *Persister) Start() {
+	if p.started {
+		return
+	}
+	p.started = true
 	// through Do: the notifier field belongs to the universe, and the actor
 	// may already be executing commands that read it via MarkDirty
 	p.u.Do(func() {
@@ -55,7 +64,10 @@ func (p *Persister) Notify() {
 
 // Stop flushes any pending state and shuts the persister down.
 func (p *Persister) Stop() {
-	close(p.quit)
+	if !p.started {
+		return
+	}
+	p.stopOnce.Do(func() { close(p.quit) })
 	<-p.done
 }
 

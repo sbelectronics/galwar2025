@@ -263,7 +263,7 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 		fmt.Printf("--  ----------------------  --------  ----------\n")
 
 		for i, cm := range port.Inventory {
-			canAfford := int(math.Floor(float64(c.Player.GetMoney()) / cm.SellPrice))
+			canAfford := int(math.Floor(float64(c.Player.GetMoney()) / cm.EffectiveSellPrice()))
 			fmt.Printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
 			choices[fmt.Sprintf("%d", i+1)] = cm
 		}
@@ -282,7 +282,7 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 
 		var canAfford int
 		c.Universe.Do(func() {
-			canAfford = int(math.Floor(float64(c.Player.GetMoney()) / commodity.SellPrice))
+			canAfford = int(math.Floor(float64(c.Player.GetMoney()) / commodity.EffectiveSellPrice()))
 		})
 
 		qty := c.PromptInt(fmt.Sprintf("\nYou can afford %d %s. How many do you want? ", canAfford, commodity.Name))
@@ -312,6 +312,14 @@ func (c *ConsoleUI) DockPort() {
 		return
 	}
 
+	// docking charges a turn (Sol excepted) and refreshes the port's stock
+	if err := c.Universe.DoErr(func() error {
+		return c.Universe.Dock(c.Player, port)
+	}); err != nil {
+		c.PrintError(err)
+		return
+	}
+
 	if port.Goods == galwar.Sol {
 		c.DockSolPort(port)
 		return
@@ -331,7 +339,7 @@ func (c *ConsoleUI) DockPort() {
 		fmt.Printf(" =====     ======    =====  =======  ========\n")
 
 		for _, cm := range port.Inventory {
-			fmt.Printf("%-10s %-9s %5.2f %8d %9d\n", cm.Name, cm.GetBuySell(), cm.GetPrice(), cm.Quantity, c.Player.GetQuantity(cm.Name))
+			fmt.Printf("%-10s %-9s %5.2f %8d %9d\n", cm.Name, cm.GetBuySell(), cm.GetPrice(), galwar.ScaleUp(c.Player, cm.Quantity), c.Player.GetQuantity(cm.Name))
 			items = append(items, tradeItem{name: cm.Name, sell: cm.Sell})
 		}
 	})
@@ -343,7 +351,7 @@ func (c *ConsoleUI) DockPort() {
 		for !c.Terminated {
 			var portWants, inHolds int
 			c.Universe.Do(func() {
-				portWants = port.GetQuantity(item.name)
+				portWants = galwar.ScaleUp(c.Player, port.GetQuantity(item.name))
 				inHolds = c.Player.GetQuantity(item.name)
 			})
 			buyAllow := min(inHolds, portWants)
@@ -370,9 +378,9 @@ func (c *ConsoleUI) DockPort() {
 			var portHas, inHolds, sellAllow int
 			c.Universe.Do(func() {
 				cm := port.GetCommodity(item.name)
-				portHas = cm.Quantity
+				portHas = galwar.ScaleUp(c.Player, cm.Quantity)
 				inHolds = c.Player.GetQuantity(item.name)
-				sellAllow = min(c.Player.GetFreeHolds(), cm.Quantity, int(math.Floor(float64(c.Player.GetMoney())/cm.SellPrice)))
+				sellAllow = min(c.Player.GetFreeHolds(), portHas, int(math.Floor(float64(c.Player.GetMoney())/cm.EffectiveSellPrice())))
 			})
 			fmt.Printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", portHas, item.name, inHolds)
 			input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", item.name, sellAllow), sellAllow)
