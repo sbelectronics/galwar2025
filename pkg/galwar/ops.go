@@ -10,6 +10,40 @@ import (
 // universe actor (Universe.Do), each trade is atomic with respect to all
 // other commands.
 
+// Volume scaling, per the original's scaleup/scaledown (TWLIB1.PAS:803-828):
+// ships with more than 50 holds trade in multiplied blocks, so a big
+// freighter can fill up in one visit. The port's stock is quoted to the
+// player multiplied by the factor, and each player-unit traded consumes only
+// 1/factor port-units.
+
+func ScaleFactor(player InventoryInterface) float64 {
+	holds := player.GetQuantity(HOLDS)
+	if holds < 50 {
+		return 1
+	}
+	r := float64(holds) / 50
+	if r > 275 {
+		r = 275
+	}
+	return r
+}
+
+// ScaleUp converts port-units to the player-units quoted to this player.
+func ScaleUp(player InventoryInterface, w int) int {
+	return int(float64(w) * ScaleFactor(player))
+}
+
+// scaleDown converts player-units traded back to port inventory units.
+// Deviation from the original's bare trunc: a nonzero trade always consumes
+// at least one port unit, so big-hold ships can't trade for free.
+func scaleDown(player InventoryInterface, w int) int {
+	d := int(float64(w) / ScaleFactor(player))
+	if d == 0 && w > 0 {
+		d = 1
+	}
+	return d
+}
+
 // Universe-method forms of the trades below: identical rules, plus marking
 // the universe dirty for the write-behind persister. Sessions should call
 // these; the free functions remain for direct engine composition and tests.
@@ -48,7 +82,7 @@ func TradeBuy(name string, port PortInterface, player InventoryInterface, quanti
 	if commodity == nil {
 		return NewGameError(ErrUnknown, fmt.Sprintf("commodity %s not found in port %s", name, port.GetName()))
 	}
-	if commodity.Quantity < quantity {
+	if ScaleUp(player, commodity.Quantity) < quantity {
 		return NewGameError(ErrNotEnoughQuantity, "We aren't selling that many.")
 	}
 	totalPrice := commodity.GetSellPrice(quantity)
@@ -58,7 +92,7 @@ func TradeBuy(name string, port PortInterface, player InventoryInterface, quanti
 	if commodity.IsCargo() && quantity > player.GetFreeHolds() {
 		return NewGameError(ErrNotEnoughHolds, "You don't have enough free holds.")
 	}
-	port.AdjustQuantity(name, -quantity)
+	port.AdjustQuantity(name, -scaleDown(player, quantity))
 	player.AdjustMoney(-totalPrice)
 	player.AdjustQuantity(name, quantity)
 	return nil
@@ -76,14 +110,14 @@ func TradeSell(name string, port PortInterface, player InventoryInterface, quant
 	if commodity == nil {
 		return NewGameError(ErrUnknown, fmt.Sprintf("commodity %s not found in port %s", name, port.GetName()))
 	}
-	if commodity.Quantity < quantity {
+	if ScaleUp(player, commodity.Quantity) < quantity {
 		return NewGameError(ErrNotEnoughQuantity, "We aren't buying that many.")
 	}
 	if player.GetQuantity(name) < quantity {
 		return NewGameError(ErrNotEnoughQuantity, "You don't have that many to sell.")
 	}
 	totalPrice := commodity.GetBuyPrice(quantity)
-	port.AdjustQuantity(name, -quantity)
+	port.AdjustQuantity(name, -scaleDown(player, quantity))
 	player.AdjustMoney(totalPrice)
 	player.AdjustQuantity(name, -quantity)
 	return nil

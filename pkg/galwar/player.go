@@ -37,6 +37,8 @@ func (u *UniverseType) NewPlayer(name string, email string) *Player {
 			quantity = u.ConfigInt("starting_holds", quantity)
 		case FIGHTERS:
 			quantity = u.ConfigInt("starting_fighters", quantity)
+		case TURNS:
+			quantity = u.ConfigInt("turns_per_day", quantity)
 		}
 		cm := Commodity{
 			Name:     tg.Name,

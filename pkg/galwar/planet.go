@@ -35,6 +35,7 @@ func (u *UniverseType) NewPlanet(owner PlayerId, sector int, name string) *Plane
 		cm := Commodity{
 			Name:     tg.Name,
 			Quantity: tg.PlanetStarting,
+			Prod:     tg.PlanetProdStarting,
 		}
 		p.Inventory = append(p.Inventory, &cm)
 	}

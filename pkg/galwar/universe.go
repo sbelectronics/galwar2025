@@ -110,7 +110,52 @@ func (u *UniverseType) Load() error {
 	}
 
 	u.wire()
+	u.upgrade()
 	return u.validate()
+}
+
+// upgrade brings data saved by older builds up to the current feature set.
+// Idempotent; runs on every load.
+func (u *UniverseType) upgrade() {
+	// players saved before the turn economy get today's allowance once
+	// (missing commodity entries are added at zero; Turns is special-cased
+	// because a zero grant would strand them)
+	for _, p := range u.Players.Players {
+		for _, tg := range TradeGoods {
+			if p.GetCommodity(tg.Name) != nil {
+				continue
+			}
+			quantity := 0
+			if tg.Name == TURNS {
+				quantity = u.ConfigInt("turns_per_day", 250)
+			}
+			p.Inventory = append(p.Inventory, &Commodity{Name: tg.Name, Quantity: quantity})
+		}
+	}
+
+	// Sol ports saved before a good existed learn to sell it
+	for _, port := range u.Ports.Ports {
+		if port.Goods != Sol {
+			continue
+		}
+		for _, tg := range TradeGoods {
+			if !tg.SellAtSol || port.GetCommodity(tg.Name) != nil {
+				continue
+			}
+			cm := tg.Commodity
+			cm.Sell = true
+			port.Inventory = append(port.Inventory, &cm)
+		}
+	}
+
+	// planets saved before production existed get the genesis seed rates
+	for _, planet := range u.Planets.Planets {
+		for _, name := range []string{ORE, ORGANICS, EQUIPMENT} {
+			if c := planet.GetCommodity(name); c != nil && c.Prod == 0 {
+				c.Prod = FindCommodityDef(name).PlanetProdStarting
+			}
+		}
+	}
 }
 
 // wire sets the unexported back-references that objects need to resolve
