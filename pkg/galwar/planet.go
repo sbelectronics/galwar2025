@@ -131,6 +131,7 @@ func (u *UniverseType) UseGenesisDevice(player *Player, sector int, name string)
 	}
 	player.AdjustQuantity(GENESIS, -1)
 	_ = u.NewPlanet(player.Id, sector, name)
+	u.MarkDirty()
 	return nil
 }
 
@@ -151,6 +152,7 @@ func (u *UniverseType) TransferSet(player *Player, sector int, commodityName str
 	}
 	planet.SetQuantity(commodityName, amount)
 	player.SetQuantity(commodityName, total-amount)
+	u.MarkDirty()
 	return nil
 }
 
@@ -170,6 +172,7 @@ func (u *UniverseType) TransferOut(player *Player, sector int, commodityName str
 	}
 	planet.AdjustQuantity(commodityName, -amount)
 	player.AdjustQuantity(commodityName, amount)
+	u.MarkDirty()
 	return nil
 }
 
@@ -188,6 +191,7 @@ func (u *UniverseType) TransferIn(player *Player, sector int) error {
 			player.SetQuantity(c.Name, 0)
 		}
 	}
+	u.MarkDirty()
 	return nil
 }
 

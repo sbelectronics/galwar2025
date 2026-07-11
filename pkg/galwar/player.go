@@ -26,19 +26,27 @@ func (u *UniverseType) NewPlayer(name string, email string) *Player {
 			Sector: 1,
 		},
 		InventoryBase: InventoryBase{
-			Money: 35000,
+			Money: u.ConfigInt("starting_credits", 35000),
 		},
 	}
 
 	for _, tg := range TradeGoods {
+		quantity := tg.Starting
+		switch tg.Name {
+		case HOLDS:
+			quantity = u.ConfigInt("starting_holds", quantity)
+		case FIGHTERS:
+			quantity = u.ConfigInt("starting_fighters", quantity)
+		}
 		cm := Commodity{
 			Name:     tg.Name,
-			Quantity: tg.Starting,
+			Quantity: quantity,
 		}
 		p.Inventory = append(p.Inventory, &cm)
 	}
 
 	u.Players.Players = append(u.Players.Players, p)
+	u.MarkDirty()
 
 	return p
 }

@@ -19,5 +19,6 @@ func (u *UniverseType) MovePlayer(p *Player, dest int) error {
 		return NewGameError(ErrNotFound, "You cannot go to that sector!")
 	}
 	p.MoveTo(dest)
+	u.MarkDirty()
 	return nil
 }

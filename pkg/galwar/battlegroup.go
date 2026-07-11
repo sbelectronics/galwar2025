@@ -123,6 +123,7 @@ func (u *UniverseType) AdjustBattlegroup(player *Player, sector int, kind string
 	if !bg.HasInventory() {
 		u.Battlegroups.RemoveBattlegroup(bg)
 	}
+	u.MarkDirty()
 	return nil
 }
 
