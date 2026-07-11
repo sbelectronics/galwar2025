@@ -31,6 +31,7 @@ type InventoryInterface interface {
 	GetQuantity(name string) int
 	GetCommodity(name string) *Commodity
 	AdjustQuantity(name string, amount int)
+	GetFreeHolds() int
 	GetMoney() int
 	AdjustMoney(amount int)
 }

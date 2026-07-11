@@ -1,25 +1,35 @@
 package consoleui
 
 import (
+	"bufio"
 	"fmt"
-	"github.com/sbelectronics/galwar/pkg/galwar"
 	"math"
+	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/sbelectronics/galwar/pkg/galwar"
 )
 
+// ConsoleUI is a session that drives the game engine from a terminal.
+// It follows the actor rules: gather input from the player first, then
+// submit one complete operation to the universe via Do/DoErr. Prompts never
+// happen while holding the universe.
+
 type ConsoleUI struct {
+	Universe   *galwar.UniverseType
 	Player     *galwar.Player
 	Terminated bool
-	wg         *sync.WaitGroup
+	scanner    *bufio.Scanner
 	input      string
 }
 
-func NewConsoleUI(player *galwar.Player) *ConsoleUI {
+func NewConsoleUI(universe *galwar.UniverseType, player *galwar.Player) *ConsoleUI {
 	return &ConsoleUI{
-		Player: player,
+		Universe: universe,
+		Player:   player,
+		scanner:  bufio.NewScanner(os.Stdin),
 	}
 }
 
@@ -32,16 +42,24 @@ func (c *ConsoleUI) PrintError(err error) {
 	fmt.Printf("Error: %s\n", err.Error())
 }
 
+// GetInput returns the next input token. Whole lines are read (so names may
+// contain spaces); ';' separates chained commands, which is how the
+// autopilot queues its course. Case is preserved - command dispatch
+// lowercases where it compares. On EOF the session terminates instead of
+// spinning.
 func (c *ConsoleUI) GetInput() string {
 	scanned := false
 	if c.input == "" {
-		fmt.Scanln(&c.input)
-		c.input = strings.ToLower(c.input)
+		if !c.scanner.Scan() {
+			c.Terminated = true
+			return ""
+		}
+		c.input = strings.TrimSpace(c.scanner.Text())
 		scanned = true
 	}
 
 	if idx := strings.Index(c.input, ";"); idx != -1 {
-		result := c.input[:idx]
+		result := strings.TrimSpace(c.input[:idx])
 		c.input = c.input[idx+1:]
 		fmt.Printf("%s\n", result)
 		return result
@@ -63,19 +81,20 @@ func (c *ConsoleUI) PromptString(prompt string) string {
 }
 
 func (c *ConsoleUI) PromptBool(prompt string) bool {
-	for {
+	for !c.Terminated {
 		fmt.Printf("%s", prompt)
-		input := c.GetInput()
-		if input == "y" || input == "Y" {
+		input := strings.ToLower(c.GetInput())
+		if input == "y" {
 			return true
-		} else if input == "n" || input == "N" || input == "" {
+		} else if input == "n" || input == "" {
 			return false
 		}
 	}
+	return false
 }
 
 func (c *ConsoleUI) PromptInt(prompt string) int {
-	for {
+	for !c.Terminated {
 		fmt.Printf("%s", prompt)
 		input := c.GetInput()
 
@@ -84,10 +103,11 @@ func (c *ConsoleUI) PromptInt(prompt string) int {
 			return result
 		}
 	}
+	return 0
 }
 
 func (c *ConsoleUI) PromptIntDefault(prompt string, def int) int {
-	for {
+	for !c.Terminated {
 		fmt.Printf("%s", prompt)
 		input := c.GetInput()
 
@@ -100,34 +120,47 @@ func (c *ConsoleUI) PromptIntDefault(prompt string, def int) int {
 			return result
 		}
 	}
+	return def
 }
 
-func (c *ConsoleUI) GetWarpStrings(sector galwar.SectorInterface) []string {
+func (c *ConsoleUI) GetWarpStrings(warps []int) []string {
 	warpStrings := []string{}
-	for _, warp := range sector.GetWarps() {
+	for _, warp := range warps {
 		warpStrings = append(warpStrings, fmt.Sprintf("%d", warp))
 	}
 	return warpStrings
 }
 
-func (c *ConsoleUI) DisplaySector(sector galwar.SectorInterface) {
-	fmt.Printf("Sector: %d\n", sector.GetNumber())
+// getWarps snapshots a sector's warp list from inside the universe actor.
+func (c *ConsoleUI) getWarps(secnum int) []int {
+	var warps []int
+	c.Universe.Do(func() {
+		warps = append(warps, c.Universe.Sectors[secnum].GetWarps()...)
+	})
+	return warps
+}
 
-	objs := galwar.Universe.GetObjectsInSector(sector.GetNumber(), "")
-	for _, obj := range objs {
-		if obj == c.Player {
-			// don't show yourself
-			continue
-		}
-		extra := obj.GetNameExtra()
-		if extra != "" {
-			fmt.Printf("%s: %s, %s\n", obj.GetType(), obj.GetName(), obj.GetNameExtra())
-		} else {
-			fmt.Printf("%s: %s\n", obj.GetType(), obj.GetName())
-		}
-	}
+func (c *ConsoleUI) DisplaySector(secnum int) {
+	c.Universe.Do(func() {
+		fmt.Printf("Sector: %d\n", secnum)
 
-	fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(sector), ", "))
+		objs := c.Universe.GetObjectsInSector(secnum, "")
+		for _, obj := range objs {
+			if obj == c.Player {
+				// don't show yourself
+				continue
+			}
+			extra := obj.GetNameExtra()
+			if extra != "" {
+				fmt.Printf("%s: %s, %s\n", obj.GetType(), obj.GetName(), extra)
+			} else {
+				fmt.Printf("%s: %s\n", obj.GetType(), obj.GetName())
+			}
+		}
+
+		warps := c.Universe.Sectors[secnum].GetWarps()
+		fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(warps), ", "))
+	})
 }
 
 func (c *ConsoleUI) ExecuteHelp() {
@@ -150,28 +183,30 @@ func (c *ConsoleUI) ExecuteHelp() {
 }
 
 func (c *ConsoleUI) ExecuteMove() {
-	sector := &galwar.Sectors[c.Player.Sector]
-	fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(sector), ", "))
+	warps := c.getWarps(c.Player.Sector)
+	fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(warps), ", "))
 
 	secnum := c.PromptInt("\nMove to what sector? ")
-
-	if !sector.HasWarp(secnum) {
-		fmt.Printf("You cannot go to that sector!\n")
+	if c.Terminated {
 		return
 	}
-	c.Player.MoveTo(secnum)
+
+	err := c.Universe.DoErr(func() error {
+		return c.Universe.MovePlayer(c.Player, secnum)
+	})
+	if err != nil {
+		c.PrintError(err)
+	}
 }
 
 func (c *ConsoleUI) ExecuteScan() {
-	sector := &galwar.Sectors[c.Player.Sector]
+	warps := c.getWarps(c.Player.Sector)
 
 	fmt.Printf("\n")
 	fmt.Printf("[-------------------------------------]\n")
 
-	for _, warp := range sector.GetWarps() {
-		adjSector := &galwar.Sectors[warp]
-
-		c.DisplaySector(adjSector)
+	for _, warp := range warps {
+		c.DisplaySector(warp)
 
 		fmt.Printf("\n")
 	}
@@ -181,13 +216,24 @@ func (c *ConsoleUI) ExecuteScan() {
 
 func (c *ConsoleUI) ExecuteAutopilot() {
 	sec := c.PromptInt("\nWhat sector do you wish to go to ? ")
+	if c.Terminated {
+		return
+	}
 
 	if sec == c.Player.Sector {
 		fmt.Printf("You are in that sector!\n")
 		return
 	}
 
-	path := galwar.Sectors[c.Player.Sector].ShortestPathTo(sec)
+	var path []int
+	c.Universe.Do(func() {
+		path = c.Universe.ShortestPathTo(c.Player.Sector, sec)
+	})
+
+	if path == nil {
+		fmt.Printf("There is no route from sector %d to sector %d!\n", c.Player.Sector, sec)
+		return
+	}
 
 	pathStrings := []string{}
 	for _, pathSec := range path {
@@ -199,7 +245,7 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 	commit := c.PromptBool("\nEnter course into autopilot(Y/N) ?")
 	if commit {
 		pathStrings = []string{}
-		for _, pathSec := range path {
+		for _, pathSec := range path[1:] {
 			pathStrings = append(pathStrings, fmt.Sprintf("m;%d", pathSec))
 		}
 		c.input = strings.Join(pathStrings, ";")
@@ -207,21 +253,24 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 }
 
 func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
-	fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Print("\n")
-
-	fmt.Printf("##  Item name               Cost      Can Afford\n")
-	fmt.Printf("--  ----------------------  --------  ----------\n")
-
 	choices := map[string]*galwar.Commodity{}
-	for i, cm := range port.Inventory {
-		canAfford := int(math.Floor(float64(c.Player.GetMoney()) / cm.SellPrice))
-		fmt.Printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
-		choices[fmt.Sprintf("%d", i+1)] = cm
-	}
 
-	for {
-		input := c.PromptString("\nEnter number to buy or <Q> to quit > ")
+	c.Universe.Do(func() {
+		fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
+		fmt.Print("\n")
+
+		fmt.Printf("##  Item name               Cost      Can Afford\n")
+		fmt.Printf("--  ----------------------  --------  ----------\n")
+
+		for i, cm := range port.Inventory {
+			canAfford := int(math.Floor(float64(c.Player.GetMoney()) / cm.SellPrice))
+			fmt.Printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
+			choices[fmt.Sprintf("%d", i+1)] = cm
+		}
+	})
+
+	for !c.Terminated {
+		input := strings.ToLower(c.PromptString("\nEnter number to buy or <Q> to quit > "))
 		if input == "q" {
 			return
 		}
@@ -230,29 +279,36 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 			fmt.Printf("Invalid choice. Please try again.\n")
 			continue
 		}
-		canAfford := int(math.Floor(float64(c.Player.GetMoney()) / commodity.SellPrice))
+
+		var canAfford int
+		c.Universe.Do(func() {
+			canAfford = int(math.Floor(float64(c.Player.GetMoney()) / commodity.SellPrice))
+		})
+
 		qty := c.PromptInt(fmt.Sprintf("\nYou can afford %d %s. How many do you want? ", canAfford, commodity.Name))
-		if qty < 0 {
-			break
+		if qty <= 0 {
+			continue
 		}
-		if qty > canAfford {
-			fmt.Printf("You cannot afford that many.\n")
-			break
+
+		err := c.Universe.DoErr(func() error {
+			return galwar.TradeBuyNoLimit(commodity, c.Player, qty)
+		})
+		if err != nil {
+			c.PrintError(err)
 		}
-		galwar.TradeBuyNoLimit(commodity, c.Player, qty)
 	}
 }
 
 func (c *ConsoleUI) DockPort() {
-	ports := galwar.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PORT)
-	if len(ports) == 0 {
+	var port *galwar.Port
+	c.Universe.Do(func() {
+		ports := c.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PORT)
+		if len(ports) > 0 {
+			port, _ = ports[0].(*galwar.Port)
+		}
+	})
+	if port == nil {
 		fmt.Printf("No ports in this sector\n")
-		return
-	}
-	port, ok := ports[0].(*galwar.Port)
-	if !ok {
-		// This should never happen, but just in case
-		fmt.Printf("Error: Object in sector is not a Port\n")
 		return
 	}
 
@@ -261,118 +317,181 @@ func (c *ConsoleUI) DockPort() {
 		return
 	}
 
-	fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Print("\n")
-	fmt.Printf(" Items     Status    Price  # units  In holds\n")
-	fmt.Printf(" =====     ======    =====  =======  ========\n")
-
-	for _, cm := range port.Inventory {
-		fmt.Printf("%-10s %-9s %5.2f %8d %9d\n", cm.Name, cm.GetBuySell(), cm.GetPrice(), cm.Quantity, c.Player.GetQuantity(cm.Name))
+	// Snapshot the commerce report and the trading order.
+	type tradeItem struct {
+		name string
+		sell bool
 	}
+	items := []tradeItem{}
 
-	for _, cm := range port.Inventory {
-		if !cm.Sell {
-			for {
-				buyAllow := min(c.Player.GetQuantity(cm.Name), cm.Quantity)
-				fmt.Printf("\nWe are buying up to %d of %s. You have %d in your holds.\n", cm.Quantity, cm.Name, c.Player.GetQuantity(cm.Name))
-				input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to sell [%d] ? ", cm.Name, buyAllow), buyAllow)
-				err := galwar.TradeSell(cm.Name, port, c.Player, input)
-				if err == nil {
-					break
-				}
-				c.PrintError(err)
+	c.Universe.Do(func() {
+		fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
+		fmt.Print("\n")
+		fmt.Printf(" Items     Status    Price  # units  In holds\n")
+		fmt.Printf(" =====     ======    =====  =======  ========\n")
+
+		for _, cm := range port.Inventory {
+			fmt.Printf("%-10s %-9s %5.2f %8d %9d\n", cm.Name, cm.GetBuySell(), cm.GetPrice(), cm.Quantity, c.Player.GetQuantity(cm.Name))
+			items = append(items, tradeItem{name: cm.Name, sell: cm.Sell})
+		}
+	})
+
+	for _, item := range items {
+		if item.sell {
+			continue
+		}
+		for !c.Terminated {
+			var portWants, inHolds int
+			c.Universe.Do(func() {
+				portWants = port.GetQuantity(item.name)
+				inHolds = c.Player.GetQuantity(item.name)
+			})
+			buyAllow := min(inHolds, portWants)
+			fmt.Printf("\nWe are buying up to %d of %s. You have %d in your holds.\n", portWants, item.name, inHolds)
+			input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to sell [%d] ? ", item.name, buyAllow), buyAllow)
+			if c.Terminated {
+				return
 			}
+			err := c.Universe.DoErr(func() error {
+				return galwar.TradeSell(item.name, port, c.Player, input)
+			})
+			if err == nil {
+				break
+			}
+			c.PrintError(err)
 		}
 	}
 
-	for _, cm := range port.Inventory {
-		if cm.Sell {
-			for {
-				sellAllow := min(c.Player.GetFreeHolds(), cm.Quantity, int(math.Floor(float64(c.Player.GetMoney())/cm.SellPrice)))
-				fmt.Printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", cm.Quantity, cm.Name, c.Player.GetQuantity(cm.Name))
-				input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", cm.Name, sellAllow), sellAllow)
-				if input > c.Player.GetFreeHolds() {
-					fmt.Printf("You don't have enough free holds.\n")
-					continue
-				}
-				err := galwar.TradeBuy(cm.Name, port, c.Player, input)
-				if err == nil {
-					break
-				}
-				c.PrintError(err)
+	for _, item := range items {
+		if !item.sell {
+			continue
+		}
+		for !c.Terminated {
+			var portHas, inHolds, sellAllow int
+			c.Universe.Do(func() {
+				cm := port.GetCommodity(item.name)
+				portHas = cm.Quantity
+				inHolds = c.Player.GetQuantity(item.name)
+				sellAllow = min(c.Player.GetFreeHolds(), cm.Quantity, int(math.Floor(float64(c.Player.GetMoney())/cm.SellPrice)))
+			})
+			fmt.Printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", portHas, item.name, inHolds)
+			input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", item.name, sellAllow), sellAllow)
+			if c.Terminated {
+				return
 			}
+			err := c.Universe.DoErr(func() error {
+				return galwar.TradeBuy(item.name, port, c.Player, input)
+			})
+			if err == nil {
+				break
+			}
+			c.PrintError(err)
 		}
 	}
 }
 
 func (c *ConsoleUI) ExecuteInfo() {
-	fmt.Print("\n")
-	fmt.Printf("           Name: %s\n", c.Player.GetName())
-	fmt.Printf("        Credits: %d\n", c.Player.GetMoney())
-	fmt.Printf("          Cargo:")
-	for _, cm := range c.Player.Inventory {
-		if cm.IsCargo() {
-			fmt.Printf(" %s: %d", cm.GetShortName(), cm.Quantity)
+	c.Universe.Do(func() {
+		fmt.Print("\n")
+		fmt.Printf("           Name: %s\n", c.Player.GetName())
+		fmt.Printf("        Credits: %d\n", c.Player.GetMoney())
+		fmt.Printf("          Cargo:")
+		for _, cm := range c.Player.Inventory {
+			if cm.IsCargo() {
+				fmt.Printf(" %s: %d", cm.GetShortName(), cm.Quantity)
+			}
 		}
-	}
-	fmt.Printf("\n")
-	for _, cm := range c.Player.Inventory {
-		if !cm.IsCargo() {
-			fmt.Printf("%15s: %d\n", cm.Name, cm.Quantity)
+		fmt.Printf("\n")
+		for _, cm := range c.Player.Inventory {
+			if !cm.IsCargo() {
+				fmt.Printf("%15s: %d\n", cm.Name, cm.Quantity)
+			}
 		}
-	}
+	})
 }
 
 func (c *ConsoleUI) ExecuteBattleGroup(kind string) {
-	total := c.Player.GetQuantity(kind)
-	bg, err := galwar.Battlegroups.GetBattlegroup(c.Player, c.Player.Sector, false)
+	var total int
+	err := c.Universe.DoErr(func() error {
+		bg, err := c.Universe.GetBattlegroup(c.Player, c.Player.Sector, false)
+		if err != nil {
+			return err
+		}
+		total = c.Player.GetQuantity(kind)
+		if bg != nil {
+			total += bg.GetQuantity(kind)
+		}
+		return nil
+	})
 	if err != nil {
 		c.PrintError(err)
 		return
 	}
-	if bg != nil {
-		total += bg.GetQuantity(kind)
-	}
+
 	amount := c.PromptInt(fmt.Sprintf("You have %d total %s. How many do you want to defend this sector? ", total, kind))
-	err = galwar.Battlegroups.AdjustBattlegroup(c.Player, c.Player.Sector, kind, amount)
+	if c.Terminated {
+		return
+	}
+
+	err = c.Universe.DoErr(func() error {
+		return c.Universe.AdjustBattlegroup(c.Player, c.Player.Sector, kind, amount)
+	})
 	if err != nil {
 		c.PrintError(err)
-		return
 	}
 }
 
 func (c *ConsoleUI) ExecuteGenesis() {
 	name := c.PromptString("Enter the name of your new planet: ")
-	err := galwar.Planets.UseGenesisDevice(c.Player, c.Player.Sector, name)
+	if c.Terminated {
+		return
+	}
+	err := c.Universe.DoErr(func() error {
+		return c.Universe.UseGenesisDevice(c.Player, c.Player.Sector, name)
+	})
 	if err != nil {
 		c.PrintError(err)
-		return
 	}
 }
 
 func (c *ConsoleUI) PlanetReport(planet *galwar.Planet) {
-	fmt.Printf("Planet report For %s: %s\n", planet.GetName(), time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Print("\n")
-	fmt.Printf(" Items      Prod     # units  In holds\n")
-	fmt.Printf(" =====     ======    =======  ========\n")
+	c.Universe.Do(func() {
+		fmt.Printf("Planet report For %s: %s\n", planet.GetName(), time.Now().Format("2006-01-02 15:04:05"))
+		fmt.Print("\n")
+		fmt.Printf(" Items      Prod     # units  In holds\n")
+		fmt.Printf(" =====     ======    =======  ========\n")
 
-	for _, cm := range planet.Inventory {
-		fmt.Printf("%-10s %6d %10d %9d\n", cm.Name, cm.Prod, cm.Quantity, c.Player.GetQuantity(cm.Name))
-	}
+		for _, cm := range planet.Inventory {
+			fmt.Printf("%-10s %6d %10d %9d\n", cm.Name, cm.Prod, cm.Quantity, c.Player.GetQuantity(cm.Name))
+		}
+	})
 }
 
 func (c *ConsoleUI) ExecutePlanetTakeCargo(commodityName string) {
-	planet, err := galwar.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+	var wanted int
+	err := c.Universe.DoErr(func() error {
+		planet, err := c.Universe.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+		if err != nil {
+			return err
+		}
+		wanted = min(c.Player.GetFreeHolds(), planet.GetQuantity(commodityName))
+		return nil
+	})
 	if err != nil {
 		c.PrintError(err)
 		return
 	}
-	wanted := min(c.Player.GetFreeHolds(), planet.GetQuantity(commodityName))
+
 	amount := c.PromptIntDefault(fmt.Sprintf("Take how much %s [%d] ? ", commodityName, wanted), wanted)
-	err = galwar.Planets.TransferOut(c.Player, c.Player.Sector, commodityName, amount)
+	if c.Terminated {
+		return
+	}
+
+	err = c.Universe.DoErr(func() error {
+		return c.Universe.TransferOut(c.Player, c.Player.Sector, commodityName, amount)
+	})
 	if err != nil {
 		c.PrintError(err)
-		return
 	}
 }
 
@@ -382,32 +501,51 @@ func (c *ConsoleUI) ExecutePlanetPutCargo() {
 		return
 	}
 
-	err := galwar.Planets.TransferIn(c.Player, c.Player.Sector)
+	err := c.Universe.DoErr(func() error {
+		return c.Universe.TransferIn(c.Player, c.Player.Sector)
+	})
 	if err != nil {
 		c.PrintError(err)
-		return
 	}
 }
 
 func (c *ConsoleUI) ExecutePlanetTransfer(commodityName string) {
-	planet, err := galwar.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+	var total int
+	err := c.Universe.DoErr(func() error {
+		planet, err := c.Universe.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+		if err != nil {
+			return err
+		}
+		total = c.Player.GetQuantity(commodityName) + planet.GetQuantity(commodityName)
+		return nil
+	})
 	if err != nil {
 		c.PrintError(err)
 		return
 	}
-	total := c.Player.GetQuantity(commodityName) + planet.GetQuantity(commodityName)
+
 	amount := c.PromptIntDefault(fmt.Sprintf("You have %d %s available, how many to leave on planet? ", total, commodityName), 0)
-	err = galwar.Planets.TransferSet(c.Player, c.Player.Sector, commodityName, amount)
+	if c.Terminated {
+		return
+	}
+
+	err = c.Universe.DoErr(func() error {
+		return c.Universe.TransferSet(c.Player, c.Player.Sector, commodityName, amount)
+	})
 	if err != nil {
 		c.PrintError(err)
-		return
 	}
 }
 
 func (c *ConsoleUI) ExecuteLand() {
 	first := true
-	for {
-		planet, err := galwar.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+	for !c.Terminated {
+		var planet *galwar.Planet
+		err := c.Universe.DoErr(func() error {
+			p, err := c.Universe.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST)
+			planet = p
+			return err
+		})
 		if err != nil {
 			c.PrintError(err)
 			return
@@ -417,7 +555,7 @@ func (c *ConsoleUI) ExecuteLand() {
 			c.PlanetReport(planet)
 			first = false
 		}
-		command := c.PromptString("\nPlanet Command (?=Help) ? ")
+		command := strings.ToLower(c.PromptString("\nPlanet Command (?=Help) ? "))
 
 		switch command {
 		case "f":
@@ -447,14 +585,14 @@ func (c *ConsoleUI) ExecuteLand() {
 }
 
 func (c *ConsoleUI) ExecuteCommand() {
-	command := c.PromptString("\nMain Command (?=Help) ? ")
+	command := strings.ToLower(c.PromptString("\nMain Command (?=Help) ? "))
 	switch command {
 	case "?":
 		c.ExecuteHelp()
 	case "d":
-		c.ExecuteBattleGroup("Mines")
+		c.ExecuteBattleGroup(galwar.MINES)
 	case "f":
-		c.ExecuteBattleGroup("Fighters")
+		c.ExecuteBattleGroup(galwar.FIGHTERS)
 	case "j":
 		c.ExecuteGenesis()
 	case "m":
@@ -475,16 +613,9 @@ func (c *ConsoleUI) ExecuteCommand() {
 }
 
 func (c *ConsoleUI) Run() {
-	defer c.wg.Done()
 	for !c.Terminated {
-		c.DisplaySector(&galwar.Sectors[c.Player.Sector])
+		c.DisplaySector(c.Player.Sector)
 		c.ExecuteCommand()
 		fmt.Print("\n")
 	}
-}
-
-func (c *ConsoleUI) Start(wg *sync.WaitGroup) {
-	wg.Add(1)
-	c.wg = wg
-	go c.Run()
 }

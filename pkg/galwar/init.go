@@ -4,8 +4,8 @@ import (
 	"math/rand"
 )
 
-func AddPortToSector(sectorNum int) {
-	i := len(Ports.Ports)
+func (u *UniverseType) AddPortToSector(sectorNum int) {
+	i := len(u.Ports.Ports)
 	p := &Port{
 		ObjectBase: ObjectBase{
 			Name:   PortNames[i],
@@ -25,7 +25,6 @@ func AddPortToSector(sectorNum int) {
 			cm.Sell = true
 			p.Inventory = append(p.Inventory, &cm)
 		}
-		break
 	default:
 		for _, tg := range TradeGoods {
 			if !tg.SellAtPorts {
@@ -42,17 +41,19 @@ func AddPortToSector(sectorNum int) {
 			toSell := rand.Intn(len(p.Inventory))
 			p.Inventory[toSell].Sell = true
 		}
-		break
 	}
 
-	Ports.Ports = append(Ports.Ports, p)
+	u.Ports.Ports = append(u.Ports.Ports, p)
 }
 
+// randSec returns a random valid sector number, 1..numsec inclusive.
 func randSec(numsec int) int {
-	return 1 + rand.Intn(numsec-1)
+	return 1 + rand.Intn(numsec)
 }
 
-func InitSectors(numsec int) {
+// Generate creates a brand-new universe of numsec sectors. The layout
+// algorithm follows the original Pascal generator.
+func (u *UniverseType) Generate(numsec int) {
 	for i := 0; i <= numsec; i++ {
 		sec := Sector{
 			Number: i,
@@ -61,27 +62,27 @@ func InitSectors(numsec int) {
 		if i > 1 {
 			sec.AddWarp(i - 1)
 		}
-		if i < numsec {
+		if (i >= 1) && (i < numsec) {
 			sec.AddWarp(i + 1)
 		}
-		Sectors = append(Sectors, sec)
+		u.Sectors = append(u.Sectors, sec)
 	}
 
 	for i := 2; i <= 9; i++ {
-		Sectors[1].AddWarp(i)
-		Sectors[i].AddWarp(1)
+		u.Sectors[1].AddWarp(i)
+		u.Sectors[i].AddWarp(1)
 	}
 
-	AddPortToSector(1) // Sol
+	u.AddPortToSector(1) // Sol
 
-	AddPortToSector(3) // for reproducibility
+	u.AddPortToSector(3) // for reproducibility
 
 	for a := 11; a <= 425*numsec/2000; a++ {
 		for {
-			b := 1 + rand.Intn(numsec-1)
-			portsThisSector := Universe.GetObjectsInSector(b, "Port")
+			b := randSec(numsec)
+			portsThisSector := u.GetObjectsInSector(b, "Port")
 			if len(portsThisSector) == 0 {
-				AddPortToSector(b)
+				u.AddPortToSector(b)
 				break
 			}
 		}
@@ -99,24 +100,33 @@ func InitSectors(numsec int) {
 				break
 			}
 		}
-		Sectors[firstSec].AddWarp(secondSec)
-		Sectors[secondSec].AddWarp(firstSec)
+		u.Sectors[firstSec].AddWarp(secondSec)
+		u.Sectors[secondSec].AddWarp(firstSec)
 	}
 
 	for a := 1; a <= 250; a++ {
 		b := randSec(numsec) // pick a sector to relink
-		j := rand.Intn(2)    // pick one of the first two links
-		c := Sectors[b].Warps[j]
+		if len(u.Sectors[b].Warps) < 2 {
+			// relinking can shrink warp counts (re-adding an existing warp
+			// is a no-op); don't index Warps[1] on a one-warp sector
+			continue
+		}
+		j := rand.Intn(2) // pick one of the first two links
+		c := u.Sectors[b].Warps[j]
 		g := randSec(numsec) // pick a sector to relink to
 
-		Sectors[b].RemoveWarp(c) // remove the old link
-		Sectors[b].AddWarp(g)
-		Sectors[g].AddWarp(b)
+		u.Sectors[b].RemoveWarp(c) // remove the old link
+		if g != b {
+			u.Sectors[b].AddWarp(g)
+			u.Sectors[g].AddWarp(b)
+		}
 
 		g = randSec(numsec)
-		Sectors[c].RemoveWarp(b) // remove the old link
-		Sectors[c].AddWarp(g)
-		Sectors[g].AddWarp(c)
+		u.Sectors[c].RemoveWarp(b) // remove the old link
+		if g != c {
+			u.Sectors[c].AddWarp(g)
+			u.Sectors[g].AddWarp(c)
+		}
 	}
 
 	// Make dead ends
@@ -124,25 +134,72 @@ func InitSectors(numsec int) {
 	for a := 1; a <= numsec*20/2000; a++ {
 		secnum := 20 + randSec(numsec-20) // pick a sector after sector 20
 
-		if len(Sectors[secnum].Warps) == 0 {
+		if len(u.Sectors[secnum].Warps) == 0 {
 			// how did this happen?
 			continue
 		}
 
-		warpToKeep := rand.Intn(len(Sectors[secnum].Warps))
-		destToKeep := Sectors[secnum].Warps[warpToKeep]
+		warpToKeep := rand.Intn(len(u.Sectors[secnum].Warps))
+		destToKeep := u.Sectors[secnum].Warps[warpToKeep]
 
 		// dest to keep is the destination we will keep
 
 		// remove everything else
-		for len(Sectors[secnum].Warps) > 0 {
-			destToRemove := Sectors[secnum].Warps[0]
-			Sectors[secnum].RemoveWarp(destToRemove)
-			Sectors[destToRemove].RemoveWarp(secnum)
+		for len(u.Sectors[secnum].Warps) > 0 {
+			destToRemove := u.Sectors[secnum].Warps[0]
+			u.Sectors[secnum].RemoveWarp(destToRemove)
+			u.Sectors[destToRemove].RemoveWarp(secnum)
 		}
 
 		// Put the one we wanted to keep back in
-		Sectors[secnum].AddWarp(destToKeep)
-		Sectors[destToKeep].AddWarp(secnum)
+		u.Sectors[secnum].AddWarp(destToKeep)
+		u.Sectors[destToKeep].AddWarp(secnum)
 	}
+
+	// The wonky logic above can strand sectors (the original had an optional
+	// CheckWarps relinker for the same reason). Guarantee every sector is
+	// reachable from sector 1.
+	u.repairConnectivity()
+}
+
+// repairConnectivity links any sector unreachable from sector 1 back into
+// the connected component with a two-way warp. Returns the number of links
+// added.
+func (u *UniverseType) repairConnectivity() int {
+	numsec := len(u.Sectors) - 1
+	reachable := make([]bool, len(u.Sectors))
+
+	bfs := func(start int) {
+		queue := []int{start}
+		reachable[start] = true
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			for _, w := range u.Sectors[cur].Warps {
+				if w >= 1 && w <= numsec && !reachable[w] {
+					reachable[w] = true
+					queue = append(queue, w)
+				}
+			}
+		}
+	}
+	bfs(1)
+
+	relinked := 0
+	for s := 2; s <= numsec; s++ {
+		if reachable[s] {
+			continue
+		}
+		for {
+			t := randSec(numsec)
+			if reachable[t] {
+				u.Sectors[s].AddWarp(t)
+				u.Sectors[t].AddWarp(s)
+				break
+			}
+		}
+		relinked++
+		bfs(s) // everything in s's component is now reachable too
+	}
+	return relinked
 }

@@ -40,7 +40,7 @@ type GameError struct {
 }
 
 func (e *GameError) Error() string {
-	return fmt.Sprintf("Error %s: %s", GameErrorCodeNames[e.code], e.Message)
+	return fmt.Sprintf("Error %s: %s", GameErrorCodeNames[e.code], e.message)
 }
 
 func (e *GameError) Message() string {

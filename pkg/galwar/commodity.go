@@ -40,14 +40,24 @@ var TradeGoods = []CommodityDefinition{
 	{Commodity: Commodity{Name: GENESIS, SellPrice: 10000, Sell: true}, ShortName: "Genesis", Holds: 0, SellAtSol: true},
 }
 
-func (c *Commodity) GetDef() *CommodityDefinition {
+// FindCommodityDef returns the definition for a commodity name, or nil if
+// there is none. Universe.Load validates every stored commodity against this,
+// so GetDef's panic below can only fire on a programming error, not on data.
+func FindCommodityDef(name string) *CommodityDefinition {
 	for i := range TradeGoods {
-		if c.Name == TradeGoods[i].Name {
+		if name == TradeGoods[i].Name {
 			return &TradeGoods[i]
 		}
 	}
-	panic("Fatal error: Commodity definition not found")
 	return nil
+}
+
+func (c *Commodity) GetDef() *CommodityDefinition {
+	def := FindCommodityDef(c.Name)
+	if def == nil {
+		panic("Fatal error: Commodity definition not found: " + c.Name)
+	}
+	return def
 }
 
 func (c *Commodity) GetShortName() string {
