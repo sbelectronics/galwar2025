@@ -18,9 +18,25 @@ type UniverseType struct {
 	Battlegroups BattlegroupList
 	Planets      PlanetList
 	Sectors      []Sector
+	Config       map[string]string
 
-	filename string
-	tasks    chan *task
+	filename    string
+	tasks       chan *task
+	dirtyNotify func()
+}
+
+// SetDirtyNotifier registers the persistence hook invoked by MarkDirty.
+func (u *UniverseType) SetDirtyNotifier(fn func()) {
+	u.dirtyNotify = fn
+}
+
+// MarkDirty records that the universe has changed and should be persisted.
+// Engine commands call this after a successful mutation. Without a
+// registered notifier (tests, generation) it is a no-op.
+func (u *UniverseType) MarkDirty() {
+	if u.dirtyNotify != nil {
+		u.dirtyNotify()
+	}
 }
 
 func NewUniverse() *UniverseType {

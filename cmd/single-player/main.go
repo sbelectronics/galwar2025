@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,23 +11,70 @@ import (
 )
 
 func main() {
-	u := galwar.NewUniverse()
-	u.SetFilename("universe.yaml")
+	dbPath := flag.String("db", "galwar.db", "path to the game database")
+	yamlPath := flag.String("yaml", "universe.yaml", "legacy YAML universe (migrated into the database if it exists and the database is empty)")
+	dumpPath := flag.String("dump", "", "write a YAML dump of the universe to this file and exit")
+	backupPath := flag.String("backup", "", "write a backup copy of the database to this file and exit")
+	flag.Parse()
 
-	if !u.FileExist() {
-		u.Generate(2000)
-		if err := u.Save(); err != nil {
-			fmt.Printf("Error saving universe: %v\n", err)
+	store, err := galwar.OpenStore(*dbPath)
+	if err != nil {
+		fmt.Printf("Error opening database: %v\n", err)
+		return
+	}
+	defer store.Close()
+
+	if *backupPath != "" {
+		if err := store.Backup(*backupPath); err != nil {
+			fmt.Printf("Error backing up database: %v\n", err)
 			return
 		}
-	} else {
-		if err := u.Load(); err != nil {
-			fmt.Printf("Error loading universe: %v\n", err)
+		fmt.Printf("Backed up %s to %s\n", *dbPath, *backupPath)
+		return
+	}
+
+	u := galwar.NewUniverse()
+	loaded, err := store.LoadUniverse(u)
+	if err != nil {
+		fmt.Printf("Error loading universe from database: %v\n", err)
+		return
+	}
+
+	if !loaded {
+		if _, err := os.Stat(*yamlPath); err == nil {
+			// one-time migration from the legacy YAML store
+			u.SetFilename(*yamlPath)
+			if err := u.Load(); err != nil {
+				fmt.Printf("Error migrating %s: %v\n", *yamlPath, err)
+				return
+			}
+			fmt.Printf("Migrated %s into %s; the database is now authoritative.\n", *yamlPath, *dbPath)
+		} else {
+			numsec := u.ConfigInt("numsec", 2000)
+			u.Generate(numsec)
+			fmt.Printf("Generated a new %d-sector universe in %s.\n", numsec, *dbPath)
+		}
+		u.SeedDefaultConfig()
+		if err := store.SaveUniverse(u.Snapshot()); err != nil {
+			fmt.Printf("Error saving universe to database: %v\n", err)
 			return
 		}
 	}
 
+	if *dumpPath != "" {
+		u.SetFilename(*dumpPath)
+		if err := u.Save(); err != nil {
+			fmt.Printf("Error writing dump: %v\n", err)
+			return
+		}
+		fmt.Printf("Dumped universe to %s\n", *dumpPath)
+		return
+	}
+
 	u.Start()
+
+	persister := galwar.NewPersister(u, store)
+	persister.Start()
 
 	var player *galwar.Player
 	u.Do(func() {
@@ -52,7 +100,5 @@ func main() {
 		fmt.Printf("\nInterrupted - saving universe...\n")
 	}
 
-	if err := u.DoErr(u.Save); err != nil {
-		fmt.Printf("Error saving universe: %v\n", err)
-	}
+	persister.Stop() // final flush
 }

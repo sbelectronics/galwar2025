@@ -1,2 +1,5 @@
 build/
 *~
+galwar.db
+galwar.db-wal
+galwar.db-shm

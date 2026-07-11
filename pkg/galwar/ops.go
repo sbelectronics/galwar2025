@@ -10,6 +10,34 @@ import (
 // universe actor (Universe.Do), each trade is atomic with respect to all
 // other commands.
 
+// Universe-method forms of the trades below: identical rules, plus marking
+// the universe dirty for the write-behind persister. Sessions should call
+// these; the free functions remain for direct engine composition and tests.
+
+func (u *UniverseType) TradeBuy(name string, port PortInterface, player InventoryInterface, quantity int) error {
+	if err := TradeBuy(name, port, player, quantity); err != nil {
+		return err
+	}
+	u.MarkDirty()
+	return nil
+}
+
+func (u *UniverseType) TradeSell(name string, port PortInterface, player InventoryInterface, quantity int) error {
+	if err := TradeSell(name, port, player, quantity); err != nil {
+		return err
+	}
+	u.MarkDirty()
+	return nil
+}
+
+func (u *UniverseType) TradeBuyNoLimit(commodity *Commodity, player InventoryInterface, quantity int) error {
+	if err := TradeBuyNoLimit(commodity, player, quantity); err != nil {
+		return err
+	}
+	u.MarkDirty()
+	return nil
+}
+
 // TradeBuy: Buy goods from a port to a player
 
 func TradeBuy(name string, port PortInterface, player InventoryInterface, quantity int) error {

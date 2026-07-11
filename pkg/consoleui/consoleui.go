@@ -291,7 +291,7 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 		}
 
 		err := c.Universe.DoErr(func() error {
-			return galwar.TradeBuyNoLimit(commodity, c.Player, qty)
+			return c.Universe.TradeBuyNoLimit(commodity, c.Player, qty)
 		})
 		if err != nil {
 			c.PrintError(err)
@@ -353,7 +353,7 @@ func (c *ConsoleUI) DockPort() {
 				return
 			}
 			err := c.Universe.DoErr(func() error {
-				return galwar.TradeSell(item.name, port, c.Player, input)
+				return c.Universe.TradeSell(item.name, port, c.Player, input)
 			})
 			if err == nil {
 				break
@@ -380,7 +380,7 @@ func (c *ConsoleUI) DockPort() {
 				return
 			}
 			err := c.Universe.DoErr(func() error {
-				return galwar.TradeBuy(item.name, port, c.Player, input)
+				return c.Universe.TradeBuy(item.name, port, c.Player, input)
 			})
 			if err == nil {
 				break
