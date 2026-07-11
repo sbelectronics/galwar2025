@@ -76,8 +76,9 @@ func snapCommodities(rows *[]commodityRow, ownerType string, ownerID string, inv
 	}
 }
 
-// Snapshot copies the universe into rows. Must run on the universe actor
-// (inside Do) once Start has been called.
+// Snapshot copies the universe into rows. Once Start has been called it must
+// run on the universe actor (inside Do); before Start (initial save,
+// migration, tests) calling it directly is fine.
 func (u *UniverseType) Snapshot() *Snapshot {
 	s := &Snapshot{
 		config: map[string]string{},

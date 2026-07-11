@@ -7,10 +7,12 @@ import (
 
 // Persister is the write-behind queue between the universe actor and the
 // SQLite store. Engine commands call Universe.MarkDirty after a successful
-// mutation; the persister coalesces those notifications and flushes one
-// consistent snapshot per quiet interval, so command latency never includes
-// a database write and rapid play produces few writes. Crash exposure is
-// bounded by the debounce interval. Stop performs a final synchronous flush.
+// mutation; the persister coalesces those notifications and writes at most
+// one consistent snapshot per interval (throttle, not trailing-edge
+// debounce: continuous play must not postpone the flush, or crash exposure
+// would become unbounded). Command latency never includes a database write,
+// and staleness on crash is bounded by the interval. Stop performs a final
+// synchronous flush.
 
 type Persister struct {
 	Interval time.Duration
@@ -34,7 +36,11 @@ func NewPersister(u *UniverseType, store *Store) *Persister {
 }
 
 func (p *Persister) Start() {
-	p.u.SetDirtyNotifier(p.Notify)
+	// through Do: the notifier field belongs to the universe, and the actor
+	// may already be executing commands that read it via MarkDirty
+	p.u.Do(func() {
+		p.u.SetDirtyNotifier(p.Notify)
+	})
 	go p.run()
 }
 
@@ -61,7 +67,7 @@ func (p *Persister) run() {
 			p.flush()
 			return
 		case <-p.kick:
-			// debounce: let a burst of commands settle into one write
+			// throttle: let a burst of commands settle into one write
 			t := time.NewTimer(p.Interval)
 			select {
 			case <-p.quit:
@@ -69,6 +75,15 @@ func (p *Persister) run() {
 				p.flush()
 				return
 			case <-t.C:
+			}
+			// fold any notifications that arrived during the wait into this
+			// flush - the snapshot below sees their mutations, so a leftover
+			// kick would only trigger a redundant write of identical state.
+			// Anything marked dirty after the snapshot re-kicks and gets its
+			// own flush next cycle.
+			select {
+			case <-p.kick:
+			default:
 			}
 			p.flush()
 		}

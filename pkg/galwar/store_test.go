@@ -179,8 +179,8 @@ func TestPersisterWriteBehind(t *testing.T) {
 	// Stop must flush the very latest state even without waiting
 	u.Do(func() {
 		player.Money = 12345
+		u.MarkDirty()
 	})
-	u.MarkDirty()
 	p.Stop()
 
 	u3 := NewUniverse()
