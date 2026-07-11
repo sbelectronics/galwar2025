@@ -144,6 +144,56 @@ func TestVolumeScaling(t *testing.T) {
 	}
 }
 
+func TestScaleDownExactInverse(t *testing.T) {
+	u := NewUniverse()
+	player := u.NewPlayer("Test", "t@example.com")
+
+	// fractional factors must not under-consume: scaleDown returns the
+	// smallest port delta whose ScaleUp covers the traded amount
+	for _, holds := range []int{25, 50, 60, 75, 500, 1234, 50000} {
+		player.SetQuantity(HOLDS, holds)
+		for _, w := range []int{1, 2, 3, 7, 50, 499, 1000} {
+			d := scaleDown(player, w)
+			if ScaleUp(player, d) < w {
+				t.Errorf("holds=%d w=%d: scaleDown=%d under-covers (ScaleUp=%d)", holds, w, d, ScaleUp(player, d))
+			}
+			if d > 1 && ScaleUp(player, d-1) >= w {
+				t.Errorf("holds=%d w=%d: scaleDown=%d not minimal", holds, w, d)
+			}
+		}
+		if got := scaleDown(player, 0); got != 0 {
+			t.Errorf("holds=%d: scaleDown(0) = %d; want 0", holds, got)
+		}
+	}
+}
+
+func TestDaemonLifecycle(t *testing.T) {
+	u := NewUniverse()
+	u.Generate(50)
+	u.SeedDefaultConfig()
+
+	// Stop without Start must return immediately; double Start and double
+	// Stop must be harmless
+	m := NewMaintenanceDaemon(u)
+	m.Stop()
+	m.Start()
+	m.Start()
+	m.Stop()
+	m.Stop()
+
+	store, err := OpenStore(filepath.Join(t.TempDir(), "galwar.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	p := NewPersister(u, store)
+	p.Stop()
+	p.Start()
+	p.Start()
+	p.Stop()
+	p.Stop()
+}
+
 func TestRestock(t *testing.T) {
 	now := time.Now().Unix()
 	c := &Commodity{Name: ORE, Prod: 100, Quantity: 0, BuyPrice: 8, SellPrice: 5}

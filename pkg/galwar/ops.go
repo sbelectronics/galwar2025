@@ -33,13 +33,22 @@ func ScaleUp(player InventoryInterface, w int) int {
 	return int(float64(w) * ScaleFactor(player))
 }
 
-// scaleDown converts player-units traded back to port inventory units.
-// Deviation from the original's bare trunc: a nonzero trade always consumes
-// at least one port unit, so big-hold ships can't trade for free.
+// scaleDown converts player-units traded back to port inventory units: the
+// smallest delta whose ScaleUp covers the traded amount. Deviation from the
+// original's bare trunc (which let fractional factors under-consume port
+// stock): rounding goes against the trader. Inverting through ScaleUp itself
+// guarantees the result never exceeds a port quantity that already passed a
+// ScaleUp(qty) >= w check.
 func scaleDown(player InventoryInterface, w int) int {
+	if w <= 0 {
+		return 0
+	}
 	d := int(float64(w) / ScaleFactor(player))
-	if d == 0 && w > 0 {
+	if d < 1 {
 		d = 1
+	}
+	for ScaleUp(player, d) < w {
+		d++
 	}
 	return d
 }

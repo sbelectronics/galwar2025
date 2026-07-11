@@ -3,6 +3,7 @@ package galwar
 import (
 	"log"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -17,9 +18,11 @@ const bil = 1500000000
 type MaintenanceDaemon struct {
 	Interval time.Duration
 
-	u    *UniverseType
-	quit chan struct{}
-	done chan struct{}
+	u        *UniverseType
+	quit     chan struct{}
+	done     chan struct{}
+	started  bool
+	stopOnce sync.Once
 }
 
 func NewMaintenanceDaemon(u *UniverseType) *MaintenanceDaemon {
@@ -31,12 +34,21 @@ func NewMaintenanceDaemon(u *UniverseType) *MaintenanceDaemon {
 	}
 }
 
+// Start and Stop are idempotent: a second Start is a no-op, Stop without
+// Start returns immediately, and a second Stop just waits again.
 func (m *MaintenanceDaemon) Start() {
+	if m.started {
+		return
+	}
+	m.started = true
 	go m.run()
 }
 
 func (m *MaintenanceDaemon) Stop() {
-	close(m.quit)
+	if !m.started {
+		return
+	}
+	m.stopOnce.Do(func() { close(m.quit) })
 	<-m.done
 }
 

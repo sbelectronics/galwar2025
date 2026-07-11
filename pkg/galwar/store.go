@@ -108,13 +108,26 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	case v == "1":
-		if _, err := db.Exec(schemaV1toV2); err != nil {
+		// SQLite DDL is transactional: the schema change and the version
+		// bump commit together, so a failure can't leave the column present
+		// with the version still reading 1 (which would brick the next open)
+		err := func() error {
+			tx, err := db.Begin()
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			if _, err := tx.Exec(schemaV1toV2); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE meta SET value=? WHERE key='schema_version'`, schemaVersion); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}()
+		if err != nil {
 			db.Close()
 			return nil, fmt.Errorf("migrating %s from schema v1: %w", path, err)
-		}
-		if _, err := db.Exec(`UPDATE meta SET value=? WHERE key='schema_version'`, schemaVersion); err != nil {
-			db.Close()
-			return nil, err
 		}
 	case v != schemaVersion:
 		db.Close()
