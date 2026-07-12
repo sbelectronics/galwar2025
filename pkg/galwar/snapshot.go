@@ -22,6 +22,8 @@ type playerRow struct {
 	timesDied int
 	diedAt    int64
 	systems   string
+	banned    bool
+	expired   bool
 }
 
 type newsRow struct {
@@ -29,6 +31,21 @@ type newsRow struct {
 	at        int64
 	msg       string
 	delivered bool
+}
+
+type reportRow struct {
+	reporter string
+	target   string
+	reason   string
+	at       int64
+	resolved bool
+}
+
+type auditRow struct {
+	at     int64
+	actor  string
+	action string
+	detail string
 }
 
 type portRow struct {
@@ -78,6 +95,8 @@ type Snapshot struct {
 	commodities  []commodityRow
 	config       map[string]string
 	news         []newsRow
+	reports      []reportRow
+	audit        []auditRow
 }
 
 // systemsToString / systemsFromString serialize the per-system damage
@@ -154,6 +173,8 @@ func (u *UniverseType) Snapshot() *Snapshot {
 			timesDied: p.TimesDied,
 			diedAt:    p.DiedAt,
 			systems:   systemsToString(p.Systems),
+			banned:    p.Banned,
+			expired:   p.Expired,
 		})
 		snapCommodities(&s.commodities, "player", string(p.Id), p.Inventory)
 	}
@@ -165,6 +186,20 @@ func (u *UniverseType) Snapshot() *Snapshot {
 			msg:       n.Msg,
 			delivered: n.Delivered,
 		})
+	}
+
+	for _, r := range u.Reports {
+		s.reports = append(s.reports, reportRow{
+			reporter: r.Reporter,
+			target:   r.Target,
+			reason:   r.Reason,
+			at:       r.At,
+			resolved: r.Resolved,
+		})
+	}
+
+	for _, a := range u.Audit {
+		s.audit = append(s.audit, auditRow{at: a.At, actor: a.Actor, action: a.Action, detail: a.Detail})
 	}
 
 	for i, p := range u.Ports.Ports {

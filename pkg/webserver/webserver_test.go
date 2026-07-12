@@ -120,6 +120,62 @@ func (c *wsClient) send(line string) {
 	}
 }
 
+func TestWebSysopBanFlow(t *testing.T) {
+	_, u, base, cleanup := testServer(t)
+	defer cleanup()
+
+	// designate the admin (web-only: admins are keyed on email)
+	u.Do(func() { u.SetConfig("admins", "boss@example.com") })
+
+	// a victim registers, then leaves
+	v := dialGame(t, base, "victim@example.com")
+	v.expect("Choose your handle:")
+	v.send("Victim Vic")
+	v.expect("Welcome aboard")
+	v.expect("Main Command")
+	v.send("q")
+	v.conn.Close()
+
+	// the admin logs in and bans the victim through the sysop menu
+	boss := dialGame(t, base, "boss@example.com")
+	boss.expect("Choose your handle:")
+	boss.send("Boss Hogg")
+	boss.expect("Main Command")
+	boss.send("sysop")
+	boss.expect("Sysop (?=Help)")
+	boss.send("b")
+	boss.expect("Handle to ban?")
+	boss.send("Victim Vic")
+	boss.expect("Done")
+	boss.send("q") // leave sysop menu
+	boss.send("q") // quit
+	boss.conn.Close()
+
+	// the victim is banned in the engine, and the ban was audited
+	var banned, audited bool
+	u.Do(func() {
+		if p := u.Players.GetByEmail("victim@example.com"); p != nil {
+			banned = p.Banned
+		}
+		for _, a := range u.Audit {
+			if a.Action == "ban" {
+				audited = true
+			}
+		}
+	})
+	if !banned {
+		t.Errorf("victim not banned after sysop ban")
+	}
+	if !audited {
+		t.Errorf("ban not recorded in the audit log")
+	}
+
+	// the banned victim can no longer get into the game
+	v2 := dialGame(t, base, "victim@example.com")
+	v2.expect("suspended")
+	v2.conn.Close()
+}
+
 func TestWebEndToEnd(t *testing.T) {
 	_, u, base, cleanup := testServer(t)
 	defer cleanup()

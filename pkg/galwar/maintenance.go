@@ -96,19 +96,33 @@ func (u *UniverseType) RunDailyMaintenance(now time.Time) bool {
 		p.Restock(unix)
 	}
 
-	// increase_planets (MAINT1.PAS:161-227)
+	// increase_planets (MAINT1.PAS:161-227); a dormant owner's planets keep
+	// producing at their frozen rate but stop compounding (Tier-1 dormancy)
 	maxMines := u.ConfigInt("planet_max_mines", 1000)
 	for _, p := range u.Planets.Planets {
-		growPlanet(p, maxMines)
+		owner := u.Players.GetById(p.Owner)
+		frozen := owner != nil && u.IsDormant(owner, now)
+		growPlanet(p, maxMines, frozen)
+	}
+
+	// Tier-2 dormancy: forfeit the assets of the long-absent and reset them
+	// to a starter ship (idempotent via the Expired flag)
+	expired := 0
+	for _, p := range u.Players.Players {
+		if u.IsExpired(p, now) {
+			u.ExpirePlayer(p, unix)
+			expired++
+		}
 	}
 
 	// drop delivered news older than a week (the original's trim_message
 	// used 3 days; we're a little more generous)
 	u.trimNews(now.Add(-7 * 24 * time.Hour).Unix())
+	u.trimAudit()
 
 	u.SetConfig("last_maint", today) // also marks dirty
-	log.Printf("daily maintenance for %s: %d players reset to %d turns, %d ports restocked, %d planets grown",
-		today, len(u.Players.Players), turnsPerDay, len(u.Ports.Ports), len(u.Planets.Planets))
+	log.Printf("daily maintenance for %s: %d players reset to %d turns, %d ports restocked, %d planets grown, %d expired",
+		today, len(u.Players.Players), turnsPerDay, len(u.Ports.Ports), len(u.Planets.Planets), expired)
 	return true
 }
 
@@ -118,7 +132,11 @@ func (u *UniverseType) RunDailyMaintenance(now time.Time) bool {
 //   - production compounds when the stockpile exceeds 10x the rate
 //   - fighter/mine production derives from the weighted commodity index
 //     t = ore/4 + org/2 + eqp; fighters = t/5, mines = t/1000
-func growPlanet(p *Planet, maxMines int) {
+//
+// When frozen (a dormant owner), stockpiles still accrue at the current rate
+// but the rate itself stops compounding and the derived production stops
+// recalculating - the planet coasts instead of snowballing while unattended.
+func growPlanet(p *Planet, maxMines int, frozen bool) {
 	ore := p.GetCommodity(ORE)
 	org := p.GetCommodity(ORGANICS)
 	eqp := p.GetCommodity(EQUIPMENT)
@@ -137,6 +155,10 @@ func growPlanet(p *Planet, maxMines int) {
 	}
 	if mines != nil {
 		mines.Quantity = min(mines.Quantity+mines.Prod, maxMines)
+	}
+
+	if frozen {
+		return
 	}
 
 	for _, c := range []*Commodity{ore, org, eqp} {

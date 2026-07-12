@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/sbelectronics/galwar/pkg/galwar"
+	"github.com/sbelectronics/galwar/pkg/ratelimit"
 )
 
 //go:embed static
@@ -45,9 +46,10 @@ type Config struct {
 }
 
 type Server struct {
-	cfg  Config
-	auth *authenticator // nil when Google login is not configured
-	mux  *http.ServeMux
+	cfg       Config
+	auth      *authenticator // nil when Google login is not configured
+	mux       *http.ServeMux
+	loginRate *ratelimit.Keyed // per-IP login throttle
 
 	mu     sync.Mutex
 	active map[galwar.PlayerId]*gameSession
@@ -61,9 +63,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		cfg.BaseURL = "http://localhost:8080"
 	}
 	s := &Server{
-		cfg:    cfg,
-		mux:    http.NewServeMux(),
-		active: map[galwar.PlayerId]*gameSession{},
+		cfg:       cfg,
+		mux:       http.NewServeMux(),
+		loginRate: ratelimit.NewKeyed(0.2, 10), // ~1 login attempt / 5s, burst 10, per IP
+		active:    map[galwar.PlayerId]*gameSession{},
 	}
 
 	if cfg.GoogleClientID != "" {

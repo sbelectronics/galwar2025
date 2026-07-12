@@ -20,6 +20,8 @@ type UniverseType struct {
 	Sectors      []Sector
 	Config       map[string]string
 	News         []*NewsItem
+	Reports      []*Report
+	Audit        []*AuditEntry
 
 	filename    string
 	tasks       chan *task
@@ -32,8 +34,17 @@ func (u *UniverseType) SetDirtyNotifier(fn func()) {
 }
 
 // MarkDirty records that the universe has changed and should be persisted.
-// Engine commands call this after a successful mutation. Without a
-// registered notifier (tests, generation) it is a no-op.
+//
+// Convention: every engine command calls this once at its end, even when a
+// sub-helper it invoked (AddNews, AddAudit, ...) already marked dirty. That
+// apparent redundancy is intentional - it makes each command's persistence
+// correct by local reasoning, without having to trace whether its callees
+// happen to mark dirty. It is not a code smell to remove.
+//
+// The call is cheap and self-coalescing: the notifier does a non-blocking
+// send to a size-1 channel that the write-behind persister debounces, so any
+// number of MarkDirty calls between flushes collapse into a single write.
+// With no registered notifier (tests, generation) it is a no-op.
 func (u *UniverseType) MarkDirty() {
 	if u.dirtyNotify != nil {
 		u.dirtyNotify()

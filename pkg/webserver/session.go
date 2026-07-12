@@ -3,6 +3,7 @@ package webserver
 import (
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/sbelectronics/galwar/pkg/consoleui"
 	"github.com/sbelectronics/galwar/pkg/galwar"
+	"github.com/sbelectronics/galwar/pkg/ratelimit"
 )
 
 // gameSession adapts one WebSocket connection to the consoleui.Terminal
@@ -29,17 +31,19 @@ type gameSession struct {
 	out       chan []byte
 	closed    chan struct{}
 	closeOnce sync.Once
+	cmdRate   *ratelimit.Bucket // per-session command throttle
 }
 
 func newGameSession(s *Server, conn *websocket.Conn, sub, email string) *gameSession {
 	return &gameSession{
-		server: s,
-		conn:   conn,
-		sub:    sub,
-		email:  email,
-		lines:  make(chan string, 16),
-		out:    make(chan []byte, 256),
-		closed: make(chan struct{}),
+		server:  s,
+		conn:    conn,
+		sub:     sub,
+		email:   email,
+		lines:   make(chan string, 16),
+		out:     make(chan []byte, 256),
+		closed:  make(chan struct{}),
+		cmdRate: ratelimit.NewBucket(10, 20), // 10 commands/sec, burst 20
 	}
 }
 
@@ -109,6 +113,7 @@ func (gs *gameSession) reader() {
 			gs.close()
 			return
 		}
+		gs.cmdRate.Wait() // throttle scripted hammering
 		line := strings.TrimRight(string(msg), "\r\n")
 		select {
 		case gs.lines <- line:
@@ -151,9 +156,23 @@ func (gs *gameSession) run() {
 	u := gs.server.cfg.Universe
 
 	var player *galwar.Player
+	var banned bool
+	var bannedName string
 	u.Do(func() {
 		player = gs.server.lookupPlayer(gs.sub, gs.email)
+		if player != nil && player.Banned {
+			banned = true
+			bannedName = player.GetName()
+		}
 	})
+	if banned {
+		// operational log, not the persisted audit ring: a banned client
+		// reconnecting must not be able to churn or evict the in-game audit
+		log.Printf("blocked login by banned player %q (web)", bannedName)
+		gs.Printf("\r\nYour account has been suspended. Contact the sysop.\r\n")
+		time.Sleep(100 * time.Millisecond)
+		return
+	}
 
 	gs.Printf("\r\n%s=== %sGALACTIC WARZONE%s ===%s\r\n", consoleui.Cyan, consoleui.White, consoleui.Cyan, consoleui.Reset)
 	if player == nil {

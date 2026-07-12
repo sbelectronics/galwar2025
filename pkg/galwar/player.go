@@ -19,6 +19,8 @@ type Player struct {
 	TimesDied int
 	DiedAt    int64 // unix seconds of death; 0 = alive. Dead ships park in sector 0.
 	Systems   []int // damage per ship system, in turns (see System* constants)
+	Banned    bool  // sysop ban; refused at login
+	Expired   bool  // Tier-2 dormancy cleanup already applied; cleared on login
 	ObjectBase
 	InventoryBase
 }
@@ -174,9 +176,11 @@ func (p *Player) CheckTelnetPassword(password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(p.PassHash), []byte(password)) == nil
 }
 
-// TouchLastSeen records a session start.
+// TouchLastSeen records a session start, clearing any dormancy: a returning
+// player is instantly visible and active again.
 func (u *UniverseType) TouchLastSeen(p *Player, now int64) {
 	p.LastSeen = now
+	p.Expired = false
 	u.MarkDirty()
 }
 

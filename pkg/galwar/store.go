@@ -13,6 +13,13 @@ func nowUnix() int64 {
 	return time.Now().Unix()
 }
 
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // Store is the SQLite persistence layer. The in-memory universe is
 // authoritative; the store is written behind it (see persister.go) and read
 // once at startup. Every SaveUniverse call rewrites the world in a single
@@ -22,7 +29,7 @@ func nowUnix() int64 {
 // scale and flush rate. If it ever becomes a bottleneck, the upgrade path is
 // per-entity dirty tracking, not a schema change.
 
-const schemaVersion = "4"
+const schemaVersion = "5"
 
 // migration from v1 (M2): commodities gained a restock clock
 const schemaV1toV2 = `ALTER TABLE commodities ADD COLUMN last_restock INTEGER NOT NULL DEFAULT 0;`
@@ -40,6 +47,13 @@ const schemaV3toV4 = `
 ALTER TABLE players ADD COLUMN times_died INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE players ADD COLUMN died_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE players ADD COLUMN systems TEXT NOT NULL DEFAULT '';
+`
+
+// migration from v4 (M6): ban/dormancy state (reports and audit tables come
+// from the base schema's IF NOT EXISTS)
+const schemaV4toV5 = `
+ALTER TABLE players ADD COLUMN banned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN expired INTEGER NOT NULL DEFAULT 0;
 `
 
 const storeSchema = `
@@ -62,13 +76,28 @@ CREATE TABLE IF NOT EXISTS players (
 	last_seen  INTEGER NOT NULL DEFAULT 0,
 	times_died INTEGER NOT NULL DEFAULT 0,
 	died_at    INTEGER NOT NULL DEFAULT 0,
-	systems    TEXT NOT NULL DEFAULT ''
+	systems    TEXT NOT NULL DEFAULT '',
+	banned     INTEGER NOT NULL DEFAULT 0,
+	expired    INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS news (
 	player_id TEXT NOT NULL,
 	at        INTEGER NOT NULL,
 	msg       TEXT NOT NULL,
 	delivered INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reports (
+	reporter TEXT NOT NULL,
+	target   TEXT NOT NULL,
+	reason   TEXT NOT NULL,
+	at       INTEGER NOT NULL,
+	resolved INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit (
+	at     INTEGER NOT NULL,
+	actor  TEXT NOT NULL,
+	action TEXT NOT NULL,
+	detail TEXT NOT NULL
 );
 -- login sessions are operational state, not world state: SaveUniverse never
 -- touches this table
@@ -161,6 +190,7 @@ func OpenStore(path string) (*Store, error) {
 		"1": {schemaV1toV2, "2"},
 		"2": {schemaV2toV3, "3"},
 		"3": {schemaV3toV4, "4"},
+		"4": {schemaV4toV5, "5"},
 	}
 	for v != schemaVersion {
 		mig, ok := migrations[v]
@@ -204,7 +234,7 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"sectors", "warps", "players", "ports", "planets", "battlegroups", "commodities", "config", "news"} {
+	for _, table := range []string{"sectors", "warps", "players", "ports", "planets", "battlegroups", "commodities", "config", "news", "reports", "audit"} {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
 			return err
 		}
@@ -230,12 +260,12 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 		}
 	}
 
-	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems, banned, expired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	for _, p := range snap.players {
-		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money, p.googleSub, p.passHash, p.lastSeen, p.timesDied, p.diedAt, p.systems); err != nil {
+		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money, p.googleSub, p.passHash, p.lastSeen, p.timesDied, p.diedAt, p.systems, boolToInt(p.banned), boolToInt(p.expired)); err != nil {
 			return err
 		}
 	}
@@ -245,11 +275,27 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 		return err
 	}
 	for _, n := range snap.news {
-		delivered := 0
-		if n.delivered {
-			delivered = 1
+		if _, err := insNews.Exec(n.playerID, n.at, n.msg, boolToInt(n.delivered)); err != nil {
+			return err
 		}
-		if _, err := insNews.Exec(n.playerID, n.at, n.msg, delivered); err != nil {
+	}
+
+	insReport, err := tx.Prepare(`INSERT INTO reports (reporter, target, reason, at, resolved) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	for _, r := range snap.reports {
+		if _, err := insReport.Exec(r.reporter, r.target, r.reason, r.at, boolToInt(r.resolved)); err != nil {
+			return err
+		}
+	}
+
+	insAudit, err := tx.Prepare(`INSERT INTO audit (at, actor, action, detail) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	for _, a := range snap.audit {
+		if _, err := insAudit.Exec(a.at, a.actor, a.action, a.detail); err != nil {
 			return err
 		}
 	}
@@ -386,20 +432,23 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 	}
 
 	// players
-	rows, err = s.db.Query(`SELECT id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems FROM players ORDER BY rowid`)
+	rows, err = s.db.Query(`SELECT id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems, banned, expired FROM players ORDER BY rowid`)
 	if err != nil {
 		return false, err
 	}
 	for rows.Next() {
 		p := &Player{}
 		var id, systems string
-		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money, &p.GoogleSub, &p.PassHash, &p.LastSeen, &p.TimesDied, &p.DiedAt, &systems); err != nil {
+		var banned, expired int
+		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money, &p.GoogleSub, &p.PassHash, &p.LastSeen, &p.TimesDied, &p.DiedAt, &systems, &banned, &expired); err != nil {
 			rows.Close()
 			return false, err
 		}
 		p.Id = PlayerId(id)
 		p.Inventory = inv("player", id)
 		p.Systems = systemsFromString(systems)
+		p.Banned = banned != 0
+		p.Expired = expired != 0
 		u.Players.Players = append(u.Players.Players, p)
 	}
 	if err := rows.Close(); err != nil {
@@ -422,6 +471,42 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 		n.Player = PlayerId(pid)
 		n.Delivered = delivered != 0
 		u.News = append(u.News, n)
+	}
+	if err := rows.Close(); err != nil {
+		return false, err
+	}
+
+	// reports
+	rows, err = s.db.Query(`SELECT reporter, target, reason, at, resolved FROM reports ORDER BY rowid`)
+	if err != nil {
+		return false, err
+	}
+	for rows.Next() {
+		r := &Report{}
+		var resolved int
+		if err := rows.Scan(&r.Reporter, &r.Target, &r.Reason, &r.At, &resolved); err != nil {
+			rows.Close()
+			return false, err
+		}
+		r.Resolved = resolved != 0
+		u.Reports = append(u.Reports, r)
+	}
+	if err := rows.Close(); err != nil {
+		return false, err
+	}
+
+	// audit
+	rows, err = s.db.Query(`SELECT at, actor, action, detail FROM audit ORDER BY rowid`)
+	if err != nil {
+		return false, err
+	}
+	for rows.Next() {
+		a := &AuditEntry{}
+		if err := rows.Scan(&a.At, &a.Actor, &a.Action, &a.Detail); err != nil {
+			rows.Close()
+			return false, err
+		}
+		u.Audit = append(u.Audit, a)
 	}
 	if err := rows.Close(); err != nil {
 		return false, err

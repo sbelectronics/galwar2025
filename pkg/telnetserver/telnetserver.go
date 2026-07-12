@@ -15,6 +15,7 @@ import (
 
 	"github.com/sbelectronics/galwar/pkg/consoleui"
 	"github.com/sbelectronics/galwar/pkg/galwar"
+	"github.com/sbelectronics/galwar/pkg/ratelimit"
 )
 
 type Server struct {
@@ -22,6 +23,7 @@ type Server struct {
 	IdleTimeout time.Duration
 
 	listener net.Listener
+	connRate *ratelimit.Keyed // per-IP connection throttle
 	mu       sync.Mutex
 	conns    map[net.Conn]struct{}
 	done     chan struct{}
@@ -31,6 +33,7 @@ func New(u *galwar.UniverseType) *Server {
 	return &Server{
 		Universe:    u,
 		IdleTimeout: 15 * time.Minute,
+		connRate:    ratelimit.NewKeyed(0.2, 10), // ~1 connection / 5s, burst 10, per IP
 		conns:       map[net.Conn]struct{}{},
 		done:        make(chan struct{}),
 	}
@@ -53,6 +56,17 @@ func (s *Server) acceptLoop() {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			return // listener closed
+		}
+		if host, _, herr := net.SplitHostPort(conn.RemoteAddr().String()); herr == nil && !s.connRate.Allow(host) {
+			// reject off the accept loop, with a write deadline: a slow or
+			// unread client must not stall accepts - and this path fires
+			// precisely during a connection flood
+			go func(c net.Conn) {
+				c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				c.Write([]byte("Too many connections from your address; slow down.\r\n"))
+				c.Close()
+			}(conn)
+			continue
 		}
 		s.mu.Lock()
 		s.conns[conn] = struct{}{}
@@ -171,6 +185,19 @@ func (s *Server) authenticate(term *telnetTerminal) *galwar.Player {
 				return nil
 			}
 			if player.CheckTelnetPassword(pass) {
+				var banned bool
+				var name string
+				u.Do(func() {
+					banned = player.Banned
+					name = player.GetName()
+				})
+				if banned {
+					// operational log, not the persisted audit ring, so a
+					// banned client can't churn or evict the in-game audit
+					log.Printf("blocked login by banned player %q (telnet)", name)
+					term.Printf("Your account has been suspended. Contact the sysop.\n")
+					return nil
+				}
 				return player
 			}
 			term.Printf("Wrong password.\n")
@@ -232,10 +259,11 @@ type telnetTerminal struct {
 	idleTimeout time.Duration
 	inbuf       []byte
 	color       bool
+	cmdRate     *ratelimit.Bucket
 }
 
 func newTelnetTerminal(conn net.Conn, idle time.Duration) *telnetTerminal {
-	return &telnetTerminal{conn: conn, idleTimeout: idle}
+	return &telnetTerminal{conn: conn, idleTimeout: idle, cmdRate: ratelimit.NewBucket(10, 20)}
 }
 
 // negotiate puts the client in character-at-a-time mode with server echo.
@@ -320,6 +348,11 @@ func (t *telnetTerminal) rawByte() (byte, error) {
 // readLineEcho assembles a line with server-side editing. echoChar is what
 // to show per keystroke: 0 = the character itself, '*' = masked, -1 = nothing.
 func (t *telnetTerminal) readLineEcho(echoChar rune) (string, error) {
+	if t.cmdRate != nil {
+		// throttle scripted hammering; here (not in ReadLine) so ReadSecret
+		// - password entry - is covered too
+		t.cmdRate.Wait()
+	}
 	var line []byte
 	for {
 		b, err := t.readByte()

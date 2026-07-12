@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/sbelectronics/galwar/pkg/galwar"
@@ -22,6 +23,7 @@ func main() {
 	telnetAddr := flag.String("telnet", ":2323", "telnet listen address (empty to disable)")
 	baseURL := flag.String("base-url", "http://localhost:8080", "externally visible base URL (for OAuth redirect and cookies)")
 	devAuth := flag.Bool("devauth", false, "enable /auth/dev?user=email login backdoor (DEVELOPMENT ONLY)")
+	admin := flag.String("admin", "", "grant sysop rights to this email (added to the admins config on startup)")
 	flag.Parse()
 
 	store, err := galwar.OpenStore(*dbPath)
@@ -54,6 +56,23 @@ func main() {
 	}
 
 	u.Start()
+
+	if adminEmail := strings.TrimSpace(*admin); adminEmail != "" {
+		u.Do(func() {
+			existing := u.ConfigString("admins", "")
+			for _, a := range strings.Split(existing, ",") {
+				if strings.EqualFold(strings.TrimSpace(a), adminEmail) {
+					return // already an admin; don't grow the config across restarts
+				}
+			}
+			if existing == "" {
+				u.SetConfig("admins", adminEmail)
+			} else {
+				u.SetConfig("admins", existing+","+adminEmail)
+			}
+		})
+		log.Printf("ensured sysop rights for %s", adminEmail)
+	}
 
 	persister := galwar.NewPersister(u, store)
 	persister.Start()
