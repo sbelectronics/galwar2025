@@ -368,12 +368,21 @@ func TestStoreMigrationV1toV2(t *testing.T) {
 	}
 	store.Close()
 
+	// regress to a true v1 schema: every column added since then must go,
+	// or replaying the migration chain would hit duplicate columns
 	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatalf("raw open: %v", err)
 	}
-	if _, err := db.Exec(`ALTER TABLE commodities DROP COLUMN last_restock`); err != nil {
-		t.Fatalf("drop column: %v", err)
+	for _, ddl := range []string{
+		`ALTER TABLE commodities DROP COLUMN last_restock`,
+		`ALTER TABLE players DROP COLUMN google_sub`,
+		`ALTER TABLE players DROP COLUMN pass_hash`,
+		`ALTER TABLE players DROP COLUMN last_seen`,
+	} {
+		if _, err := db.Exec(ddl); err != nil {
+			t.Fatalf("regress %q: %v", ddl, err)
+		}
 	}
 	if _, err := db.Exec(`UPDATE meta SET value='1' WHERE key='schema_version'`); err != nil {
 		t.Fatalf("regress version: %v", err)
