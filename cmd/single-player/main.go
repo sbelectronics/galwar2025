@@ -87,7 +87,7 @@ func main() {
 		}
 	})
 
-	ui := consoleui.NewConsoleUI(u, player)
+	ui := consoleui.NewConsoleUI(u, player, consoleui.NewStdioTerminal())
 	done := make(chan struct{})
 	go func() {
 		ui.Run()

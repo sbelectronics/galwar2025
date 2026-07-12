@@ -4,9 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"time"
 
 	_ "modernc.org/sqlite" // pure Go, no cgo
 )
+
+func nowUnix() int64 {
+	return time.Now().Unix()
+}
 
 // Store is the SQLite persistence layer. The in-memory universe is
 // authoritative; the store is written behind it (see persister.go) and read
@@ -17,10 +22,17 @@ import (
 // scale and flush rate. If it ever becomes a bottleneck, the upgrade path is
 // per-entity dirty tracking, not a schema change.
 
-const schemaVersion = "2"
+const schemaVersion = "3"
 
 // migration from v1 (M2): commodities gained a restock clock
 const schemaV1toV2 = `ALTER TABLE commodities ADD COLUMN last_restock INTEGER NOT NULL DEFAULT 0;`
+
+// migration from v2 (M3): players gained web/telnet identity fields
+const schemaV2toV3 = `
+ALTER TABLE players ADD COLUMN google_sub TEXT NOT NULL DEFAULT '';
+ALTER TABLE players ADD COLUMN pass_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE players ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
+`
 
 const storeSchema = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -32,11 +44,22 @@ CREATE TABLE IF NOT EXISTS warps (
 	PRIMARY KEY (from_sector, to_sector)
 );
 CREATE TABLE IF NOT EXISTS players (
-	id     TEXT PRIMARY KEY,
-	email  TEXT NOT NULL,
-	name   TEXT NOT NULL,
-	sector INTEGER NOT NULL,
-	money  INTEGER NOT NULL
+	id         TEXT PRIMARY KEY,
+	email      TEXT NOT NULL,
+	name       TEXT NOT NULL,
+	sector     INTEGER NOT NULL,
+	money      INTEGER NOT NULL,
+	google_sub TEXT NOT NULL DEFAULT '',
+	pass_hash  TEXT NOT NULL DEFAULT '',
+	last_seen  INTEGER NOT NULL DEFAULT 0
+);
+-- login sessions are operational state, not world state: SaveUniverse never
+-- touches this table
+CREATE TABLE IF NOT EXISTS sessions (
+	token   TEXT PRIMARY KEY,
+	sub     TEXT NOT NULL,
+	email   TEXT NOT NULL,
+	expires INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS ports (
 	idx    INTEGER PRIMARY KEY,
@@ -104,34 +127,48 @@ func OpenStore(path string) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+		v = schemaVersion
 	case err != nil:
 		db.Close()
 		return nil, err
-	case v == "1":
-		// SQLite DDL is transactional: the schema change and the version
-		// bump commit together, so a failure can't leave the column present
-		// with the version still reading 1 (which would brick the next open)
+	}
+
+	// walk the migration chain one version at a time; each step's DDL and
+	// version bump commit in a single transaction (SQLite DDL is
+	// transactional), so a failure can't leave the schema half-migrated
+	// with a stale version marker
+	migrations := map[string]struct {
+		ddl  string
+		next string
+	}{
+		"1": {schemaV1toV2, "2"},
+		"2": {schemaV2toV3, "3"},
+	}
+	for v != schemaVersion {
+		mig, ok := migrations[v]
+		if !ok {
+			db.Close()
+			return nil, fmt.Errorf("database %s has schema version %s; this build supports %s", path, v, schemaVersion)
+		}
 		err := func() error {
 			tx, err := db.Begin()
 			if err != nil {
 				return err
 			}
 			defer tx.Rollback()
-			if _, err := tx.Exec(schemaV1toV2); err != nil {
+			if _, err := tx.Exec(mig.ddl); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`UPDATE meta SET value=? WHERE key='schema_version'`, schemaVersion); err != nil {
+			if _, err := tx.Exec(`UPDATE meta SET value=? WHERE key='schema_version'`, mig.next); err != nil {
 				return err
 			}
 			return tx.Commit()
 		}()
 		if err != nil {
 			db.Close()
-			return nil, fmt.Errorf("migrating %s from schema v1: %w", path, err)
+			return nil, fmt.Errorf("migrating %s from schema v%s: %w", path, v, err)
 		}
-	case v != schemaVersion:
-		db.Close()
-		return nil, fmt.Errorf("database %s has schema version %s; this build supports %s", path, v, schemaVersion)
+		v = mig.next
 	}
 
 	return &Store{db: db}, nil
@@ -175,12 +212,12 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 		}
 	}
 
-	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money) VALUES (?, ?, ?, ?, ?)`)
+	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money, google_sub, pass_hash, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	for _, p := range snap.players {
-		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money); err != nil {
+		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money, p.googleSub, p.passHash, p.lastSeen); err != nil {
 			return err
 		}
 	}
@@ -317,14 +354,14 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 	}
 
 	// players
-	rows, err = s.db.Query(`SELECT id, email, name, sector, money FROM players ORDER BY rowid`)
+	rows, err = s.db.Query(`SELECT id, email, name, sector, money, google_sub, pass_hash, last_seen FROM players ORDER BY rowid`)
 	if err != nil {
 		return false, err
 	}
 	for rows.Next() {
 		p := &Player{}
 		var id string
-		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money); err != nil {
+		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money, &p.GoogleSub, &p.PassHash, &p.LastSeen); err != nil {
 			rows.Close()
 			return false, err
 		}
@@ -428,5 +465,34 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 // The destination must not already exist.
 func (s *Store) Backup(path string) error {
 	_, err := s.db.Exec(`VACUUM INTO ?`, path)
+	return err
+}
+
+// Login sessions. These are operational state keyed by auth identity (not
+// player), so a session can exist before its player registers. Safe to call
+// from any goroutine; database/sql serializes on the single connection.
+
+func (s *Store) CreateSession(token, sub, email string, expires int64) error {
+	// opportunistic prune keeps the table from accumulating dead tokens
+	if _, err := s.db.Exec(`DELETE FROM sessions WHERE expires < ?`, nowUnix()); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`INSERT INTO sessions (token, sub, email, expires) VALUES (?, ?, ?, ?)`, token, sub, email, expires)
+	return err
+}
+
+func (s *Store) GetSession(token string) (sub string, email string, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT sub, email FROM sessions WHERE token = ? AND expires >= ?`, token, nowUnix()).Scan(&sub, &email)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return sub, email, true, nil
+}
+
+func (s *Store) DeleteSession(token string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE token = ?`, token)
 	return err
 }

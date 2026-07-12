@@ -1,10 +1,8 @@
 package consoleui
 
 import (
-	"bufio"
 	"fmt"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -12,56 +10,57 @@ import (
 	"github.com/sbelectronics/galwar/pkg/galwar"
 )
 
-// ConsoleUI is a session that drives the game engine from a terminal.
-// It follows the actor rules: gather input from the player first, then
-// submit one complete operation to the universe via Do/DoErr. Prompts never
-// happen while holding the universe.
+// ConsoleUI is a session that drives the game engine from any Terminal
+// (local console, WebSocket, telnet). It follows the actor rules: gather
+// input from the player first, then submit one complete operation to the
+// universe via Do/DoErr. Prompts never happen while holding the universe.
 
 type ConsoleUI struct {
 	Universe   *galwar.UniverseType
 	Player     *galwar.Player
+	Term       Terminal
 	Terminated bool
-	scanner    *bufio.Scanner
 	input      string
 }
 
-func NewConsoleUI(universe *galwar.UniverseType, player *galwar.Player) *ConsoleUI {
+func NewConsoleUI(universe *galwar.UniverseType, player *galwar.Player, term Terminal) *ConsoleUI {
 	return &ConsoleUI{
 		Universe: universe,
 		Player:   player,
-		scanner:  bufio.NewScanner(os.Stdin),
+		Term:     term,
 	}
 }
 
+func (c *ConsoleUI) printf(format string, args ...any) {
+	c.Term.Printf(format, args...)
+}
+
 func (c *ConsoleUI) PrintError(err error) {
-	gameErr, ok := err.(*galwar.GameError)
-	if ok {
-		fmt.Printf("%s\n", gameErr.Message())
-		return
-	}
-	fmt.Printf("Error: %s\n", err.Error())
+	// the original showed rule violations in light red throughout
+	c.printf("%s%s%s\n", LightRed, ErrText(err), Reset)
 }
 
 // GetInput returns the next input token. Whole lines are read (so names may
 // contain spaces); ';' separates chained commands, which is how the
 // autopilot queues its course. Case is preserved - command dispatch
-// lowercases where it compares. On EOF the session terminates instead of
-// spinning.
+// lowercases where it compares. On EOF/disconnect the session terminates
+// instead of spinning.
 func (c *ConsoleUI) GetInput() string {
 	scanned := false
 	if c.input == "" {
-		if !c.scanner.Scan() {
+		line, err := c.Term.ReadLine()
+		if err != nil {
 			c.Terminated = true
 			return ""
 		}
-		c.input = strings.TrimSpace(c.scanner.Text())
+		c.input = strings.TrimSpace(line)
 		scanned = true
 	}
 
 	if idx := strings.Index(c.input, ";"); idx != -1 {
 		result := strings.TrimSpace(c.input[:idx])
 		c.input = c.input[idx+1:]
-		fmt.Printf("%s\n", result)
+		c.printf("%s\n", result)
 		return result
 	}
 
@@ -69,20 +68,20 @@ func (c *ConsoleUI) GetInput() string {
 	c.input = ""
 
 	if !scanned {
-		fmt.Printf("%s\n", result)
+		c.printf("%s\n", result)
 	}
 
 	return result
 }
 
 func (c *ConsoleUI) PromptString(prompt string) string {
-	fmt.Printf("%s", prompt)
+	c.printf("%s", prompt)
 	return c.GetInput()
 }
 
 func (c *ConsoleUI) PromptBool(prompt string) bool {
 	for !c.Terminated {
-		fmt.Printf("%s", prompt)
+		c.printf("%s", prompt)
 		input := strings.ToLower(c.GetInput())
 		if input == "y" {
 			return true
@@ -95,7 +94,7 @@ func (c *ConsoleUI) PromptBool(prompt string) bool {
 
 func (c *ConsoleUI) PromptInt(prompt string) int {
 	for !c.Terminated {
-		fmt.Printf("%s", prompt)
+		c.printf("%s", prompt)
 		input := c.GetInput()
 
 		result, err := strconv.Atoi(input)
@@ -108,7 +107,7 @@ func (c *ConsoleUI) PromptInt(prompt string) int {
 
 func (c *ConsoleUI) PromptIntDefault(prompt string, def int) int {
 	for !c.Terminated {
-		fmt.Printf("%s", prompt)
+		c.printf("%s", prompt)
 		input := c.GetInput()
 
 		if input == "" {
@@ -140,9 +139,26 @@ func (c *ConsoleUI) getWarps(secnum int) []int {
 	return warps
 }
 
+// objectColor is the original display_sector palette (TWLIB1.PAS:917-1035):
+// ports green, planets light gray, other ships light cyan, sector forces
+// light red.
+func objectColor(kind string) string {
+	switch kind {
+	case galwar.TYPE_PORT:
+		return Green
+	case galwar.TYPE_PLANET:
+		return LightGray
+	case galwar.TYPE_PLAYER:
+		return LightCyan
+	case galwar.TYPE_BATTLEGROUP:
+		return LightRed
+	}
+	return LightGray
+}
+
 func (c *ConsoleUI) DisplaySector(secnum int) {
 	c.Universe.Do(func() {
-		fmt.Printf("Sector: %d\n", secnum)
+		c.printf("%sSector: %d%s\n", LightRed, secnum, Reset)
 
 		objs := c.Universe.GetObjectsInSector(secnum, "")
 		for _, obj := range objs {
@@ -150,41 +166,51 @@ func (c *ConsoleUI) DisplaySector(secnum int) {
 				// don't show yourself
 				continue
 			}
+			color := objectColor(obj.GetType())
 			extra := obj.GetNameExtra()
 			if extra != "" {
-				fmt.Printf("%s: %s, %s\n", obj.GetType(), obj.GetName(), extra)
+				c.printf("%s%s: %s, %s%s\n", color, obj.GetType(), obj.GetName(), extra, Reset)
 			} else {
-				fmt.Printf("%s: %s\n", obj.GetType(), obj.GetName())
+				c.printf("%s%s: %s%s\n", color, obj.GetType(), obj.GetName(), Reset)
 			}
 		}
 
 		warps := c.Universe.Sectors[secnum].GetWarps()
-		fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(warps), ", "))
+		c.printf("%sWarps lead to: %s%s\n", Green, strings.Join(c.GetWarpStrings(warps), ", "), Reset)
 	})
 }
 
 func (c *ConsoleUI) ExecuteHelp() {
-	fmt.Printf("             [COMBAT]             [TACTICAL]          [MOVEMENT]            \n")
-	fmt.Printf("\n")
-	fmt.Printf("        [A] Attack Player      [S] Sensor Scan     [M] Move to Sector       \n")
-	fmt.Printf("        [D] Drop Mine          [C] Computer        [L] Land on planet       \n")
-	fmt.Printf("        [F] Take/Leave fgtrs   [I] Your info       [P] Dock at port         \n")
-	fmt.Printf("        [G] Launch Group       [B] Use Device      [Y] Engage Autopilot     \n")
-	fmt.Printf("                               [H] Damage Control  [R] Starbase Transporter \n")
-	fmt.Printf("\n")
-	fmt.Printf("             [HELP]               [MISC]              [PLANETS]             \n")
-	fmt.Printf("\n")
-	fmt.Printf("        [?] This menu          [V] Record Macro    [J] Create Planet        \n")
-	fmt.Printf("        [Z] Instructions       [W] Plasma device   [O] <Removed>            \n")
-	fmt.Printf("                               [Q] Quit to bbs     [U] Starbase maint       \n")
-	fmt.Printf("                               [T] Team Menu                                \n")
-	fmt.Printf("\n")
-	fmt.Printf("Implemented Commands: D, F, I, J, L, M, P, Q, S, Y\n")
+	lines := []string{
+		"             [COMBAT]             [TACTICAL]          [MOVEMENT]            ",
+		"",
+		"        [A] Attack Player      [S] Sensor Scan     [M] Move to Sector       ",
+		"        [D] Drop Mine          [C] Computer        [L] Land on planet       ",
+		"        [F] Take/Leave fgtrs   [I] Your info       [P] Dock at port         ",
+		"        [G] Launch Group       [B] Use Device      [Y] Engage Autopilot     ",
+		"                               [H] Damage Control  [R] Starbase Transporter ",
+		"",
+		"             [HELP]               [MISC]              [PLANETS]             ",
+		"",
+		"        [?] This menu          [V] Record Macro    [J] Create Planet        ",
+		"        [Z] Instructions       [W] Plasma device   [O] <Removed>            ",
+		"                               [Q] Quit to bbs     [U] Starbase maint       ",
+		"                               [T] Team Menu                                ",
+	}
+	for _, line := range lines {
+		if line == "" {
+			c.printf("\n")
+			continue
+		}
+		c.printf("%s\n", HelpLine(line))
+	}
+	c.printf("\n")
+	c.printf("%s\n", HelpLine("Implemented Commands: D, F, I, J, L, M, P, Q, S, Y (and [PASS] to set a telnet password)"))
 }
 
 func (c *ConsoleUI) ExecuteMove() {
 	warps := c.getWarps(c.Player.Sector)
-	fmt.Printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(warps), ", "))
+	c.printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(warps), ", "))
 
 	secnum := c.PromptInt("\nMove to what sector? ")
 	if c.Terminated {
@@ -202,16 +228,16 @@ func (c *ConsoleUI) ExecuteMove() {
 func (c *ConsoleUI) ExecuteScan() {
 	warps := c.getWarps(c.Player.Sector)
 
-	fmt.Printf("\n")
-	fmt.Printf("[-------------------------------------]\n")
+	c.printf("\n")
+	c.printf("[-------------------------------------]\n")
 
 	for _, warp := range warps {
 		c.DisplaySector(warp)
 
-		fmt.Printf("\n")
+		c.printf("\n")
 	}
 
-	fmt.Printf("[-------------------------------------]\n")
+	c.printf("[-------------------------------------]\n")
 }
 
 func (c *ConsoleUI) ExecuteAutopilot() {
@@ -221,7 +247,7 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 	}
 
 	if sec == c.Player.Sector {
-		fmt.Printf("You are in that sector!\n")
+		c.printf("You are in that sector!\n")
 		return
 	}
 
@@ -231,7 +257,7 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 	})
 
 	if path == nil {
-		fmt.Printf("There is no route from sector %d to sector %d!\n", c.Player.Sector, sec)
+		c.printf("There is no route from sector %d to sector %d!\n", c.Player.Sector, sec)
 		return
 	}
 
@@ -240,7 +266,7 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 		pathStrings = append(pathStrings, fmt.Sprintf("%d", pathSec))
 	}
 
-	fmt.Printf("The shortest path from sector %d to sector %d is: %s\n", c.Player.Sector, sec, strings.Join(pathStrings, ","))
+	c.printf("The shortest path from sector %d to sector %d is: %s\n", c.Player.Sector, sec, strings.Join(pathStrings, ","))
 
 	commit := c.PromptBool("\nEnter course into autopilot(Y/N) ?")
 	if commit {
@@ -256,17 +282,20 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 	choices := map[string]*galwar.Commodity{}
 
 	c.Universe.Do(func() {
-		fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
-		fmt.Print("\n")
+		// commerce report: yellow title, green headers, white rows
+		// (TWARS.PAS port procedure)
+		c.printf("%sCommerce Report For %s: %s%s\n", Yellow, port.GetName(), time.Now().Format("2006-01-02 15:04:05"), Reset)
+		c.printf("\n")
 
-		fmt.Printf("##  Item name               Cost      Can Afford\n")
-		fmt.Printf("--  ----------------------  --------  ----------\n")
+		c.printf("%s##  Item name               Cost      Can Afford\n", Green)
+		c.printf("--  ----------------------  --------  ----------%s\n", White)
 
 		for i, cm := range port.Inventory {
 			canAfford := int(math.Floor(float64(c.Player.GetMoney()) / cm.EffectiveSellPrice()))
-			fmt.Printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
+			c.printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
 			choices[fmt.Sprintf("%d", i+1)] = cm
 		}
+		c.printf("%s", Reset)
 	})
 
 	for !c.Terminated {
@@ -276,7 +305,7 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 		}
 		commodity, exists := choices[input]
 		if !exists {
-			fmt.Printf("Invalid choice. Please try again.\n")
+			c.printf("Invalid choice. Please try again.\n")
 			continue
 		}
 
@@ -308,7 +337,7 @@ func (c *ConsoleUI) DockPort() {
 		}
 	})
 	if port == nil {
-		fmt.Printf("No ports in this sector\n")
+		c.printf("No ports in this sector\n")
 		return
 	}
 
@@ -333,15 +362,18 @@ func (c *ConsoleUI) DockPort() {
 	items := []tradeItem{}
 
 	c.Universe.Do(func() {
-		fmt.Printf("Commerce Report For %s: %s\n", port.GetName(), time.Now().Format("2006-01-02 15:04:05"))
-		fmt.Print("\n")
-		fmt.Printf(" Items     Status    Price  # units  In holds\n")
-		fmt.Printf(" =====     ======    =====  =======  ========\n")
+		// commerce report: yellow title, green headers, white rows
+		// (TWARS.PAS port procedure)
+		c.printf("%sCommerce Report For %s: %s%s\n", Yellow, port.GetName(), time.Now().Format("2006-01-02 15:04:05"), Reset)
+		c.printf("\n")
+		c.printf("%s Items     Status    Price  # units  In holds\n", Green)
+		c.printf(" =====     ======    =====  =======  ========%s\n", White)
 
 		for _, cm := range port.Inventory {
-			fmt.Printf("%-10s %-9s %5.2f %8d %9d\n", cm.Name, cm.GetBuySell(), cm.GetPrice(), galwar.ScaleUp(c.Player, cm.Quantity), c.Player.GetQuantity(cm.Name))
+			c.printf("%-10s %-9s %5.2f %8d %9d\n", cm.Name, cm.GetBuySell(), cm.GetPrice(), galwar.ScaleUp(c.Player, cm.Quantity), c.Player.GetQuantity(cm.Name))
 			items = append(items, tradeItem{name: cm.Name, sell: cm.Sell})
 		}
+		c.printf("%s", Reset)
 	})
 
 	for _, item := range items {
@@ -355,7 +387,7 @@ func (c *ConsoleUI) DockPort() {
 				inHolds = c.Player.GetQuantity(item.name)
 			})
 			buyAllow := min(inHolds, portWants)
-			fmt.Printf("\nWe are buying up to %d of %s. You have %d in your holds.\n", portWants, item.name, inHolds)
+			c.printf("\nWe are buying up to %d of %s. You have %d in your holds.\n", portWants, item.name, inHolds)
 			input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to sell [%d] ? ", item.name, buyAllow), buyAllow)
 			if c.Terminated {
 				return
@@ -382,7 +414,7 @@ func (c *ConsoleUI) DockPort() {
 				inHolds = c.Player.GetQuantity(item.name)
 				sellAllow = min(c.Player.GetFreeHolds(), portHas, int(math.Floor(float64(c.Player.GetMoney())/cm.EffectiveSellPrice())))
 			})
-			fmt.Printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", portHas, item.name, inHolds)
+			c.printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", portHas, item.name, inHolds)
 			input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", item.name, sellAllow), sellAllow)
 			if c.Terminated {
 				return
@@ -399,22 +431,24 @@ func (c *ConsoleUI) DockPort() {
 }
 
 func (c *ConsoleUI) ExecuteInfo() {
+	// info screen: cyan labels, white values (TWARS.PAS:148-198)
 	c.Universe.Do(func() {
-		fmt.Print("\n")
-		fmt.Printf("           Name: %s\n", c.Player.GetName())
-		fmt.Printf("        Credits: %d\n", c.Player.GetMoney())
-		fmt.Printf("          Cargo:")
+		c.printf("\n")
+		c.printf("%s           Name: %s%s\n", Cyan, White, c.Player.GetName())
+		c.printf("%s        Credits: %s%d\n", Cyan, White, c.Player.GetMoney())
+		c.printf("%s          Cargo:%s", Cyan, White)
 		for _, cm := range c.Player.Inventory {
 			if cm.IsCargo() {
-				fmt.Printf(" %s: %d", cm.GetShortName(), cm.Quantity)
+				c.printf(" %s: %d", cm.GetShortName(), cm.Quantity)
 			}
 		}
-		fmt.Printf("\n")
+		c.printf("\n")
 		for _, cm := range c.Player.Inventory {
 			if !cm.IsCargo() {
-				fmt.Printf("%15s: %d\n", cm.Name, cm.Quantity)
+				c.printf("%s%15s: %s%d\n", Cyan, cm.Name, White, cm.Quantity)
 			}
 		}
+		c.printf("%s", Reset)
 	})
 }
 
@@ -462,16 +496,47 @@ func (c *ConsoleUI) ExecuteGenesis() {
 	}
 }
 
+// ExecuteSetPassword sets the player's telnet password (hidden command
+// "pass", in the spirit of the original's hidden VER/MEM commands).
+func (c *ConsoleUI) ExecuteSetPassword() {
+	c.printf("Set a password for telnet logins (also used if you connect with a classic client).\n")
+	c.printf("New password: ")
+	pass, err := ReadPassword(c.Term)
+	if err != nil {
+		c.Terminated = true
+		return
+	}
+	c.printf("Repeat password: ")
+	again, err := ReadPassword(c.Term)
+	if err != nil {
+		c.Terminated = true
+		return
+	}
+	if pass != again {
+		c.printf("Passwords do not match.\n")
+		return
+	}
+	serr := c.Universe.DoErr(func() error {
+		return c.Universe.SetTelnetPassword(c.Player, pass)
+	})
+	if serr != nil {
+		c.PrintError(serr)
+		return
+	}
+	c.printf("Password set. You can now log in by telnet with your handle.\n")
+}
+
 func (c *ConsoleUI) PlanetReport(planet *galwar.Planet) {
 	c.Universe.Do(func() {
-		fmt.Printf("Planet report For %s: %s\n", planet.GetName(), time.Now().Format("2006-01-02 15:04:05"))
-		fmt.Print("\n")
-		fmt.Printf(" Items      Prod     # units  In holds\n")
-		fmt.Printf(" =====     ======    =======  ========\n")
+		c.printf("%sPlanet report For %s: %s%s\n", Yellow, planet.GetName(), time.Now().Format("2006-01-02 15:04:05"), Reset)
+		c.printf("\n")
+		c.printf("%s Items      Prod     # units  In holds\n", Green)
+		c.printf(" =====     ======    =======  ========%s\n", White)
 
 		for _, cm := range planet.Inventory {
-			fmt.Printf("%-10s %6d %10d %9d\n", cm.Name, cm.Prod, cm.Quantity, c.Player.GetQuantity(cm.Name))
+			c.printf("%-10s %6d %10d %9d\n", cm.Name, cm.Prod, cm.Quantity, c.Player.GetQuantity(cm.Name))
 		}
+		c.printf("%s", Reset)
 	})
 }
 
@@ -581,19 +646,21 @@ func (c *ConsoleUI) ExecuteLand() {
 		case "v":
 			first = true
 		case "?":
-			fmt.Printf("[F] Fighter transfer\n")
-			fmt.Printf("[1] Take Ore\n")
-			fmt.Printf("[2] Take Organics\n")
-			fmt.Printf("[3] Take Equipment\n")
-			fmt.Printf("[T] Transfer Cargo to Planet\n")
-			fmt.Printf("[L] Leave Planet\n")
-			fmt.Printf("[V] View Planet Production\n")
+			c.printf("[F] Fighter transfer\n")
+			c.printf("[1] Take Ore\n")
+			c.printf("[2] Take Organics\n")
+			c.printf("[3] Take Equipment\n")
+			c.printf("[T] Transfer Cargo to Planet\n")
+			c.printf("[L] Leave Planet\n")
+			c.printf("[V] View Planet Production\n")
 		}
 	}
 }
 
 func (c *ConsoleUI) ExecuteCommand() {
-	command := strings.ToLower(c.PromptString("\nMain Command (?=Help) ? "))
+	// yellow prompt, white input echo, as in play_game (TWARS.PAS:1389-1392)
+	command := strings.ToLower(c.PromptString("\n" + Yellow + "Main Command (?=Help) ? " + White))
+	c.printf("%s", Reset)
 	switch command {
 	case "?":
 		c.ExecuteHelp()
@@ -611,6 +678,8 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.ExecuteLand()
 	case "p":
 		c.DockPort()
+	case "pass":
+		c.ExecuteSetPassword()
 	case "q":
 		c.Terminated = true
 	case "s":
@@ -624,6 +693,6 @@ func (c *ConsoleUI) Run() {
 	for !c.Terminated {
 		c.DisplaySector(c.Player.Sector)
 		c.ExecuteCommand()
-		fmt.Print("\n")
+		c.printf("\n")
 	}
 }

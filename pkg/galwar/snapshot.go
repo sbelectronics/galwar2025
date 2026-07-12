@@ -6,11 +6,14 @@ package galwar
 // only a courier between the actor and the store.
 
 type playerRow struct {
-	id     string
-	email  string
-	name   string
-	sector int
-	money  int
+	id        string
+	email     string
+	name      string
+	sector    int
+	money     int
+	googleSub string
+	passHash  string
+	lastSeen  int64
 }
 
 type portRow struct {
@@ -95,11 +98,14 @@ func (u *UniverseType) Snapshot() *Snapshot {
 
 	for _, p := range u.Players.Players {
 		s.players = append(s.players, playerRow{
-			id:     string(p.Id),
-			email:  p.Email,
-			name:   p.Name,
-			sector: p.Sector,
-			money:  p.Money,
+			id:        string(p.Id),
+			email:     p.Email,
+			name:      p.Name,
+			sector:    p.Sector,
+			money:     p.Money,
+			googleSub: p.GoogleSub,
+			passHash:  p.PassHash,
+			lastSeen:  p.LastSeen,
 		})
 		snapCommodities(&s.commodities, "player", string(p.Id), p.Inventory)
 	}
