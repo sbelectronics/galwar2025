@@ -15,6 +15,7 @@ import (
 
 	"github.com/sbelectronics/galwar/pkg/consoleui"
 	"github.com/sbelectronics/galwar/pkg/galwar"
+	"github.com/sbelectronics/galwar/pkg/ratelimit"
 )
 
 type Server struct {
@@ -22,6 +23,7 @@ type Server struct {
 	IdleTimeout time.Duration
 
 	listener net.Listener
+	connRate *ratelimit.Keyed // per-IP connection throttle
 	mu       sync.Mutex
 	conns    map[net.Conn]struct{}
 	done     chan struct{}
@@ -31,6 +33,7 @@ func New(u *galwar.UniverseType) *Server {
 	return &Server{
 		Universe:    u,
 		IdleTimeout: 15 * time.Minute,
+		connRate:    ratelimit.NewKeyed(0.2, 10), // ~1 connection / 5s, burst 10, per IP
 		conns:       map[net.Conn]struct{}{},
 		done:        make(chan struct{}),
 	}
@@ -53,6 +56,11 @@ func (s *Server) acceptLoop() {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			return // listener closed
+		}
+		if host, _, herr := net.SplitHostPort(conn.RemoteAddr().String()); herr == nil && !s.connRate.Allow(host) {
+			conn.Write([]byte("Too many connections from your address; slow down.\r\n"))
+			conn.Close()
+			continue
 		}
 		s.mu.Lock()
 		s.conns[conn] = struct{}{}
@@ -171,6 +179,17 @@ func (s *Server) authenticate(term *telnetTerminal) *galwar.Player {
 				return nil
 			}
 			if player.CheckTelnetPassword(pass) {
+				var banned bool
+				u.Do(func() {
+					banned = player.Banned
+					if banned {
+						u.AddAudit(time.Now().Unix(), player.GetName(), "banned-login-blocked", "telnet")
+					}
+				})
+				if banned {
+					term.Printf("Your account has been suspended. Contact the sysop.\n")
+					return nil
+				}
 				return player
 			}
 			term.Printf("Wrong password.\n")
@@ -232,10 +251,11 @@ type telnetTerminal struct {
 	idleTimeout time.Duration
 	inbuf       []byte
 	color       bool
+	cmdRate     *ratelimit.Bucket
 }
 
 func newTelnetTerminal(conn net.Conn, idle time.Duration) *telnetTerminal {
-	return &telnetTerminal{conn: conn, idleTimeout: idle}
+	return &telnetTerminal{conn: conn, idleTimeout: idle, cmdRate: ratelimit.NewBucket(10, 20)}
 }
 
 // negotiate puts the client in character-at-a-time mode with server echo.
@@ -356,6 +376,9 @@ func (t *telnetTerminal) readLineEcho(echoChar rune) (string, error) {
 }
 
 func (t *telnetTerminal) ReadLine() (string, error) {
+	if t.cmdRate != nil {
+		t.cmdRate.Wait() // throttle scripted hammering
+	}
 	return t.readLineEcho(0)
 }
 

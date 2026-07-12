@@ -257,7 +257,7 @@ func TestPlanetProduction(t *testing.T) {
 	}
 
 	// day 1: stock 10+1=11 > prod*10=10, so prod ramps by (11-10)/10 = 0
-	growPlanet(planet, 1000)
+	growPlanet(planet, 1000, false)
 	if got := planet.GetQuantity(ORE); got != 11 {
 		t.Errorf("day-1 ore = %d; want 11", got)
 	}
@@ -265,7 +265,7 @@ func TestPlanetProduction(t *testing.T) {
 	// hoard cargo on the planet and production compounds:
 	// prod 1, stock 210 -> prod += (210-10)/10 = 20 -> prod 21
 	planet.SetQuantity(ORE, 209) // becomes 210 after +prod
-	growPlanet(planet, 1000)
+	growPlanet(planet, 1000, false)
 	if got := planet.GetCommodity(ORE).Prod; got != 21 {
 		t.Errorf("ramped ore prod = %d; want 21", got)
 	}
@@ -382,6 +382,8 @@ func TestStoreMigrationV1toV2(t *testing.T) {
 		`ALTER TABLE players DROP COLUMN times_died`,
 		`ALTER TABLE players DROP COLUMN died_at`,
 		`ALTER TABLE players DROP COLUMN systems`,
+		`ALTER TABLE players DROP COLUMN banned`,
+		`ALTER TABLE players DROP COLUMN expired`,
 	} {
 		if _, err := db.Exec(ddl); err != nil {
 			t.Fatalf("regress %q: %v", ddl, err)

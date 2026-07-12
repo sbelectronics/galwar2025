@@ -4,12 +4,32 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
+
+// clientIP extracts the request's source IP for per-IP rate limiting.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// loginThrottled writes a 429 and returns true when the client IP has
+// exceeded the login rate.
+func (s *Server) loginThrottled(w http.ResponseWriter, r *http.Request) bool {
+	if !s.loginRate.Allow(clientIP(r)) {
+		http.Error(w, "too many attempts; slow down", http.StatusTooManyRequests)
+		return true
+	}
+	return false
+}
 
 // "Log in with Google" via standard OIDC authorization-code flow. The
 // account key is the ID token's stable `sub` claim, never the email (emails
@@ -53,6 +73,9 @@ func randToken() string {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.loginThrottled(w, r) {
+		return
+	}
 	if s.auth == nil {
 		http.Error(w, "Google login is not configured on this server", http.StatusServiceUnavailable)
 		return
@@ -71,6 +94,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
+	if s.loginThrottled(w, r) {
+		return
+	}
 	if s.auth == nil {
 		http.Error(w, "Google login is not configured on this server", http.StatusServiceUnavailable)
 		return
@@ -120,6 +146,9 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDevAuth(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.DevAuth {
 		http.NotFound(w, r)
+		return
+	}
+	if s.loginThrottled(w, r) {
 		return
 	}
 	email := r.URL.Query().Get("user")

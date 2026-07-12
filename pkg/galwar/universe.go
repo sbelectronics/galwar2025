@@ -20,6 +20,8 @@ type UniverseType struct {
 	Sectors      []Sector
 	Config       map[string]string
 	News         []*NewsItem
+	Reports      []*Report
+	Audit        []*AuditEntry
 
 	filename    string
 	tasks       chan *task

@@ -157,10 +157,11 @@ func objectColor(kind string) string {
 }
 
 func (c *ConsoleUI) DisplaySector(secnum int) {
+	now := time.Now()
 	c.Universe.Do(func() {
 		c.printf("%sSector: %d%s\n", LightRed, secnum, Reset)
 
-		objs := c.Universe.GetObjectsInSector(secnum, "")
+		objs := c.Universe.GetVisibleObjectsInSector(secnum, "", now)
 		for _, obj := range objs {
 			if obj == c.Player {
 				// don't show yourself
@@ -205,7 +206,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 		c.printf("%s\n", HelpLine(line))
 	}
 	c.printf("\n")
-	c.printf("%s\n", HelpLine("Implemented Commands: A, D, F, H, I, J, L, M, P, Q, S, Y (and [PASS] to set a telnet password)"))
+	c.printf("%s\n", HelpLine("Implemented: A, C, D, F, H, I, J, L, M, P, Q, S, Y  (plus [PASS], [REPORT], [SYSOP])"))
 }
 
 func (c *ConsoleUI) ExecuteMove() {
@@ -247,8 +248,9 @@ func (c *ConsoleUI) ExecuteAttack() {
 		name string
 	}
 	var targets []candidate
+	now := time.Now()
 	c.Universe.Do(func() {
-		for _, obj := range c.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PLAYER) {
+		for _, obj := range c.Universe.GetVisibleObjectsInSector(c.Player.Sector, galwar.TYPE_PLAYER, now) {
 			p, ok := obj.(*galwar.Player)
 			if !ok || p == c.Player || p.IsDead() {
 				continue
@@ -785,6 +787,163 @@ func (c *ConsoleUI) ExecuteLand() {
 	}
 }
 
+// ExecuteComputer is the original's C command: an on-board computer with
+// sub-reports. Currently offers player rankings.
+func (c *ConsoleUI) ExecuteComputer() {
+	for !c.Terminated {
+		cmd := strings.ToLower(c.PromptString("\n" + Yellow + "Computer (?=Help) ? " + Reset))
+		switch cmd {
+		case "l":
+			c.ShowRankings()
+		case "q", "":
+			return
+		case "?":
+			c.printf("%s[L]%s Rank the greatest warlords\n", Cyan, Reset)
+			c.printf("%s[Q]%s Quit the computer\n", Cyan, Reset)
+		}
+	}
+}
+
+func (c *ConsoleUI) ShowRankings() {
+	now := time.Now()
+	c.Universe.Do(func() {
+		ranks := c.Universe.RankedPlayers(now)
+		c.printf("\n%s   Rank  Trader                          Net Worth\n", Green)
+		c.printf("   ====  ==============================  ============%s\n", White)
+		for i, r := range ranks {
+			if i >= 20 {
+				break
+			}
+			tag := ""
+			if r.Dormant {
+				tag = " (dormant)"
+			}
+			c.printf("   %4d  %-30s %12d%s\n", i+1, r.Name, r.Value, tag)
+		}
+		c.printf("%s", Reset)
+	})
+}
+
+// ExecuteReport lets a player report another for sysop review.
+func (c *ConsoleUI) ExecuteReport() {
+	target := c.PromptString("Report which trader (handle)? ")
+	if c.Terminated || strings.TrimSpace(target) == "" {
+		return
+	}
+	reason := c.PromptString("Reason? ")
+	if c.Terminated {
+		return
+	}
+	err := c.Universe.DoErr(func() error {
+		return c.Universe.FileReport(c.Player, target, reason)
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.printf("%sReport filed. Thank you - a sysop will review it.%s\n", LightGreen, Reset)
+}
+
+// ExecuteSysop is the hidden admin menu (the original's E editor command,
+// gated by allowremote). Available only to configured admins.
+func (c *ConsoleUI) ExecuteSysop() {
+	var admin bool
+	c.Universe.Do(func() {
+		admin = c.Universe.IsAdmin(c.Player)
+	})
+	if !admin {
+		c.printf("%sAccess denied.%s\n", LightRed, Reset)
+		return
+	}
+	for !c.Terminated {
+		cmd := strings.ToLower(c.PromptString("\n" + LightMagenta + "Sysop (?=Help) ? " + Reset))
+		switch cmd {
+		case "l":
+			c.sysopListReports()
+		case "b":
+			c.sysopBan(true)
+		case "u":
+			c.sysopBan(false)
+		case "r":
+			c.sysopRename()
+		case "a":
+			c.sysopAudit()
+		case "q", "":
+			return
+		case "?":
+			c.printf("%s[L]%s List open reports   %s[B]%s Ban    %s[U]%s Unban\n", Cyan, Reset, Cyan, Reset, Cyan, Reset)
+			c.printf("%s[R]%s Force-rename        %s[A]%s Audit log   %s[Q]%s Quit\n", Cyan, Reset, Cyan, Reset, Cyan, Reset)
+		}
+	}
+}
+
+func (c *ConsoleUI) sysopListReports() {
+	c.Universe.Do(func() {
+		reports := c.Universe.OpenReports()
+		if len(reports) == 0 {
+			c.printf("%sNo open reports.%s\n", LightGreen, Reset)
+			return
+		}
+		c.printf("\n%sOpen reports:%s\n", Yellow, Reset)
+		for _, r := range reports {
+			c.printf("%s  %s reported %s: %s%s\n", LightCyan, r.Reporter, r.Target, r.Reason, Reset)
+		}
+	})
+}
+
+func (c *ConsoleUI) sysopBan(ban bool) {
+	verb := "ban"
+	if !ban {
+		verb = "unban"
+	}
+	handle := c.PromptString(fmt.Sprintf("Handle to %s? ", verb))
+	if c.Terminated || strings.TrimSpace(handle) == "" {
+		return
+	}
+	err := c.Universe.DoErr(func() error {
+		return c.Universe.SetBanned(c.Player, handle, ban)
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.Universe.Do(func() { c.Universe.ResolveReports(handle) })
+	c.printf("%sDone.%s\n", LightGreen, Reset)
+}
+
+func (c *ConsoleUI) sysopRename() {
+	handle := c.PromptString("Handle to rename? ")
+	if c.Terminated || strings.TrimSpace(handle) == "" {
+		return
+	}
+	newName := c.PromptString("New handle? ")
+	if c.Terminated {
+		return
+	}
+	err := c.Universe.DoErr(func() error {
+		return c.Universe.ForceRename(c.Player, handle, newName)
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.printf("%sRenamed.%s\n", LightGreen, Reset)
+}
+
+func (c *ConsoleUI) sysopAudit() {
+	c.Universe.Do(func() {
+		audit := c.Universe.Audit
+		c.printf("\n%sRecent admin/security events:%s\n", Yellow, Reset)
+		start := 0
+		if len(audit) > 15 {
+			start = len(audit) - 15
+		}
+		for _, a := range audit[start:] {
+			c.printf("%s  %s: %s %s%s\n", LightCyan, a.Actor, a.Action, a.Detail, Reset)
+		}
+	})
+}
+
 func (c *ConsoleUI) ExecuteCommand() {
 	// yellow prompt, white input echo, as in play_game (TWARS.PAS:1389-1392)
 	command := strings.ToLower(c.PromptString("\n" + Yellow + "Main Command (?=Help) ? " + White))
@@ -794,6 +953,8 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.ExecuteHelp()
 	case "a":
 		c.ExecuteAttack()
+	case "c":
+		c.ExecuteComputer()
 	case "d":
 		c.ExecuteBattleGroup(galwar.MINES)
 	case "f":
@@ -812,6 +973,10 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.DockPort()
 	case "pass":
 		c.ExecuteSetPassword()
+	case "report":
+		c.ExecuteReport()
+	case "sysop":
+		c.ExecuteSysop()
 	case "q":
 		c.Terminated = true
 	case "s":

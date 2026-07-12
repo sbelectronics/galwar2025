@@ -89,6 +89,11 @@ func (u *UniverseType) AttackPlayer(attacker *Player, targetId PlayerId, commit 
 	if target == nil || target.IsDead() || target.Sector != attacker.Sector {
 		return nil, NewGameError(ErrNotFound, "They aren't here anymore!")
 	}
+	// a dormant player's ship is hidden and can't be farmed while its owner
+	// is away (Tier-1 dormancy)
+	if u.IsDormant(target, time.Now()) {
+		return nil, NewGameError(ErrNotFound, "They aren't here anymore!")
+	}
 	if target == attacker {
 		return nil, NewGameError(ErrUnknown, "Attacking yourself is not a strategy.")
 	}

@@ -47,17 +47,11 @@ func (u *UniverseType) EnsureNPC(kind string) *Player {
 	return p
 }
 
-// KillPlayer marks a player dead and forfeits their standing assets:
-// sector defense forces go to the Renegades, planets "revolt" to the Cabal
-// or the Federation (kill_player gave them to a teammate first; teams are
-// Phase C). The dead ship parks in sector 0 until reconstruction.
-func (u *UniverseType) KillPlayer(p *Player, now int64) {
-	if p.IsDead() {
-		return
-	}
-	p.TimesDied++
-	p.DiedAt = now
-
+// forfeitAssets hands a player's standing assets to the NPC factions: sector
+// defense forces to the Renegades, planets "revolt" to the Cabal or the
+// Federation (kill_player gave them to a teammate first; teams are Phase C).
+// Shared by combat death and dormancy expiry.
+func (u *UniverseType) forfeitAssets(p *Player, now int64) {
 	renegades := u.EnsureNPC("renegades")
 	for _, bg := range u.Battlegroups.Battlegroups {
 		if bg.Owner == p.Id {
@@ -78,8 +72,55 @@ func (u *UniverseType) KillPlayer(p *Player, now int64) {
 		planet.Owner = heir.Id
 		u.AddNews(p.Id, now, fmt.Sprintf("Your planet %s in sector %d has revolted to %s.", planet.Name, planet.Sector, heir.GetName()))
 	}
+}
 
+// resetToStartingShip wipes a player's inventory and issues a fresh starting
+// ship scaled by mult (100 = full kit). Shared by reconstruction and expiry.
+func (u *UniverseType) resetToStartingShip(p *Player, mult int) {
+	p.Inventory = nil
+	p.Money = u.ConfigInt("starting_credits", 35000) * mult / 100
+	for _, tg := range TradeGoods {
+		quantity := tg.Starting
+		switch tg.Name {
+		case HOLDS:
+			quantity = u.ConfigInt("starting_holds", quantity) * mult / 100
+		case FIGHTERS:
+			quantity = u.ConfigInt("starting_fighters", quantity) * mult / 100
+		case TURNS:
+			quantity = u.ConfigInt("turns_per_day", quantity)
+		}
+		p.Inventory = append(p.Inventory, &Commodity{Name: tg.Name, Quantity: quantity})
+	}
+	p.Systems = make([]int, NumSystems)
+}
+
+// KillPlayer marks a player dead and forfeits their standing assets. The dead
+// ship parks in sector 0 until reconstruction.
+func (u *UniverseType) KillPlayer(p *Player, now int64) {
+	if p.IsDead() {
+		return
+	}
+	p.TimesDied++
+	p.DiedAt = now
+	u.forfeitAssets(p, now)
 	p.MoveTo(0)
+	u.MarkDirty()
+}
+
+// ExpirePlayer applies Tier-2 dormancy cleanup: forfeit assets and issue a
+// fresh starter ship at Sol, no death state, no penalty. Deliberate deviation
+// from the original's "erase and reconstruct on return": resetting in place
+// is idempotent (guarded by the Expired flag) and spares a returning player
+// the day-of-death lockout that never made sense for mere absence.
+func (u *UniverseType) ExpirePlayer(p *Player, now int64) {
+	if p.IsNPC() || p.IsDead() || p.Expired {
+		return
+	}
+	u.forfeitAssets(p, now)
+	u.resetToStartingShip(p, 100)
+	p.MoveTo(1)
+	p.Expired = true
+	u.AddNews(p.Id, now, "You were absent so long the Traders Guild repossessed your holdings and issued you a fresh starter ship.")
 	u.MarkDirty()
 }
 
@@ -104,22 +145,7 @@ func (u *UniverseType) ReconstructIfDue(p *Player, now time.Time) (string, bool)
 	}
 	mult := 100 - penalty
 
-	// rebuild the starting ship, scaled
-	p.Inventory = nil
-	p.Money = u.ConfigInt("starting_credits", 35000) * mult / 100
-	for _, tg := range TradeGoods {
-		quantity := tg.Starting
-		switch tg.Name {
-		case HOLDS:
-			quantity = u.ConfigInt("starting_holds", quantity) * mult / 100
-		case FIGHTERS:
-			quantity = u.ConfigInt("starting_fighters", quantity) * mult / 100
-		case TURNS:
-			quantity = u.ConfigInt("turns_per_day", quantity)
-		}
-		p.Inventory = append(p.Inventory, &Commodity{Name: tg.Name, Quantity: quantity})
-	}
-	p.Systems = make([]int, NumSystems)
+	u.resetToStartingShip(p, mult)
 	p.DiedAt = 0
 	p.MoveTo(1)
 	u.MarkDirty()
