@@ -102,6 +102,10 @@ func (u *UniverseType) RunDailyMaintenance(now time.Time) bool {
 		growPlanet(p, maxMines)
 	}
 
+	// drop delivered news older than a week (the original's trim_message
+	// used 3 days; we're a little more generous)
+	u.trimNews(now.Add(-7 * 24 * time.Hour).Unix())
+
 	u.SetConfig("last_maint", today) // also marks dirty
 	log.Printf("daily maintenance for %s: %d players reset to %d turns, %d ports restocked, %d planets grown",
 		today, len(u.Players.Players), turnsPerDay, len(u.Ports.Ports), len(u.Planets.Planets))

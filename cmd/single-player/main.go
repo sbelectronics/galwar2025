@@ -87,10 +87,13 @@ func main() {
 		}
 	})
 
-	ui := consoleui.NewConsoleUI(u, player, consoleui.NewStdioTerminal())
+	term := consoleui.NewStdioTerminal()
+	ui := consoleui.NewConsoleUI(u, player, term)
 	done := make(chan struct{})
 	go func() {
-		ui.Run()
+		if consoleui.SessionStart(u, term, player) {
+			ui.Run()
+		}
 		close(done)
 	}()
 

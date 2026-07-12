@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/sbelectronics/galwar/pkg/galwar"
 )
@@ -75,6 +76,44 @@ func ErrText(err error) string {
 		return gameErr.Message()
 	}
 	return "Error: " + err.Error()
+}
+
+// SessionStart runs the login-time rituals shared by every front-end:
+// reconstruction after death (with the day-of-death lockout) and delivery
+// of the player's news. Returns false when the session must end (the
+// player died today and the Traders Guild hasn't finished with them).
+func SessionStart(u *galwar.UniverseType, term Terminal, player *galwar.Player) bool {
+	var deathMsg string
+	var alive bool
+	var news []string
+	u.Do(func() {
+		deathMsg, _ = u.ReconstructIfDue(player, time.Now())
+		alive = !player.IsDead()
+		if alive {
+			news = u.TakeNews(player.Id)
+		}
+	})
+
+	if deathMsg != "" {
+		term.Printf("\n%s%s%s\n", LightRed, deathMsg, Reset)
+	}
+	if !alive {
+		return false
+	}
+	PrintNews(term, "While you were away:", news)
+	return true
+}
+
+// PrintNews renders a batch of news items under a header, in the original's
+// news colors (yellow header, light-cyan items). A no-op when empty.
+func PrintNews(term Terminal, header string, news []string) {
+	if len(news) == 0 {
+		return
+	}
+	term.Printf("\n%s%s%s\n", Yellow, header, Reset)
+	for _, msg := range news {
+		term.Printf("%s  %s%s\n", LightCyan, msg, Reset)
+	}
 }
 
 // RegisterFlow prompts for a handle until one passes moderation and

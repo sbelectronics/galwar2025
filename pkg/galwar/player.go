@@ -16,8 +16,76 @@ type Player struct {
 	GoogleSub string // Google OIDC subject; "" for accounts that predate web auth
 	PassHash  string // bcrypt hash for telnet logins; "" = no telnet password set
 	LastSeen  int64  // unix seconds of last session start
+	TimesDied int
+	DiedAt    int64 // unix seconds of death; 0 = alive. Dead ships park in sector 0.
+	Systems   []int // damage per ship system, in turns (see System* constants)
 	ObjectBase
 	InventoryBase
+}
+
+// Ship systems, per the original's shipstat[1..6] (GLOBALS.PAS:274-277).
+// Damage is measured in turns and heals one point per turn spent.
+const (
+	SysEngines = iota
+	SysComputer
+	SysSensors
+	SysBGComputer
+	SysCargoBay
+	SysThrusters
+	NumSystems
+)
+
+// MaxShipDamage caps per-system damage (maxshipdam=150, GLOBALS.PAS:14).
+const MaxShipDamage = 150
+
+var SystemNames = [NumSystems]string{
+	"Warp Engines", "Ship Computer", "Sensors",
+	"Battle-Group Computer", "Cargo Bay", "Landing Thrusters",
+}
+
+// IsDead reports whether the player is awaiting reconstruction.
+func (p *Player) IsDead() bool {
+	return p.DiedAt != 0
+}
+
+// IsNPC reports whether this is a faction record (Renegades, Cabal,
+// Federation) that inherits dead players' assets, like the original's
+// reserved user slots 97/98/99.
+func (p *Player) IsNPC() bool {
+	return strings.HasPrefix(p.GoogleSub, "npc:")
+}
+
+func (p *Player) ensureSystems() {
+	if len(p.Systems) != NumSystems {
+		p.Systems = make([]int, NumSystems)
+	}
+}
+
+// DamageSystem adds damage to one system, capped like the original.
+func (p *Player) DamageSystem(sys int, amount int) {
+	p.ensureSystems()
+	p.Systems[sys] += amount
+	if p.Systems[sys] > MaxShipDamage {
+		p.Systems[sys] = MaxShipDamage
+	}
+}
+
+// HealSystems repairs one point on every damaged system (the passturn
+// behavior, TWLIB1.PAS:1644-1723).
+func (p *Player) HealSystems() {
+	for i := range p.Systems {
+		if p.Systems[i] > 0 {
+			p.Systems[i]--
+		}
+	}
+}
+
+func (p *Player) TotalSystemDamage() int {
+	total := 0
+	for _, d := range p.Systems {
+		total += d
+	}
+	return total
 }
 
 type PlayerList struct {
@@ -56,6 +124,7 @@ func (u *UniverseType) NewPlayer(name string, email string) *Player {
 		p.Inventory = append(p.Inventory, &cm)
 	}
 
+	p.Systems = make([]int, NumSystems)
 	u.Players.Players = append(u.Players.Players, p)
 	u.MarkDirty()
 

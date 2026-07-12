@@ -205,7 +205,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 		c.printf("%s\n", HelpLine(line))
 	}
 	c.printf("\n")
-	c.printf("%s\n", HelpLine("Implemented Commands: D, F, I, J, L, M, P, Q, S, Y (and [PASS] to set a telnet password)"))
+	c.printf("%s\n", HelpLine("Implemented Commands: A, D, F, H, I, J, L, M, P, Q, S, Y (and [PASS] to set a telnet password)"))
 }
 
 func (c *ConsoleUI) ExecuteMove() {
@@ -217,15 +217,115 @@ func (c *ConsoleUI) ExecuteMove() {
 		return
 	}
 
+	var report []string
 	err := c.Universe.DoErr(func() error {
-		return c.Universe.MovePlayer(c.Player, secnum)
+		r, err := c.Universe.MovePlayer(c.Player, secnum)
+		report = r
+		return err
 	})
 	if err != nil {
 		c.PrintError(err)
+		return
+	}
+	c.printReport(report)
+}
+
+// printReport shows a combat narration in the original's battle red.
+func (c *ConsoleUI) printReport(report []string) {
+	for _, line := range report {
+		c.printf("%s%s%s\n", LightRed, line, Reset)
 	}
 }
 
+// ExecuteAttack is the original's A command (GWMISC.PAS:269): pick a target
+// in your sector, commit fighters, and the whole battle - exchange,
+// counter-attack, salvage, boobytraps - resolves in one atomic command.
+// The defender doesn't need to be online; they read about it in the news.
+func (c *ConsoleUI) ExecuteAttack() {
+	type candidate struct {
+		id   galwar.PlayerId
+		name string
+	}
+	var targets []candidate
+	c.Universe.Do(func() {
+		for _, obj := range c.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PLAYER) {
+			p, ok := obj.(*galwar.Player)
+			if !ok || p == c.Player || p.IsDead() {
+				continue
+			}
+			targets = append(targets, candidate{id: p.Id, name: p.GetName()})
+		}
+	})
+	if len(targets) == 0 {
+		c.printf("There is nobody here to attack.\n")
+		return
+	}
+
+	c.printf("\n")
+	for i, t := range targets {
+		c.printf("%s[%d]%s %s\n", Cyan, i+1, Reset, t.name)
+	}
+	choice := c.PromptInt("\nAttack which ship (0=abort) ? ")
+	if c.Terminated || choice < 1 || choice > len(targets) {
+		return
+	}
+	target := targets[choice-1]
+
+	if !c.PromptBool(fmt.Sprintf("Attack %s (Y/N)[N] ? ", target.name)) {
+		return
+	}
+
+	var fighters int
+	c.Universe.Do(func() {
+		fighters = c.Player.GetQuantity(galwar.FIGHTERS)
+	})
+	commit := c.PromptIntDefault(fmt.Sprintf("How many fighters do you wish to use [%d] ? ", fighters), fighters)
+	if c.Terminated {
+		return
+	}
+
+	var report []string
+	err := c.Universe.DoErr(func() error {
+		r, err := c.Universe.AttackPlayer(c.Player, target.id, commit)
+		report = r
+		return err
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.printReport(report)
+}
+
+// ExecuteDamageControl is the original's H command: the six ship systems
+// and their damage in turns. Damage heals one point per turn spent, or all
+// at once (for a price) at Sol.
+func (c *ConsoleUI) ExecuteDamageControl() {
+	c.Universe.Do(func() {
+		total := c.Player.TotalSystemDamage()
+		if total == 0 {
+			c.printf("%sAll ship systems are operational.%s\n", LightGreen, Reset)
+			return
+		}
+		c.printf("\n%s System                 Damage (turns)\n", Green)
+		c.printf(" ======================  ==============%s\n", White)
+		for i, name := range galwar.SystemNames {
+			if c.Player.Systems[i] > 0 {
+				c.printf(" %-22s  %d\n", name, c.Player.Systems[i])
+			}
+		}
+		c.printf("%s\n%sDamage heals 1 point per turn spent; Sol repairs everything for %d credits per point.%s\n",
+			Reset, LightCyan, c.Universe.ConfigInt("cost_of_repair", 250), Reset)
+	})
+}
+
 func (c *ConsoleUI) ExecuteScan() {
+	if err := c.Universe.DoErr(func() error {
+		return c.Universe.CheckSystem(c.Player, galwar.SysSensors)
+	}); err != nil {
+		c.PrintError(err)
+		return
+	}
 	warps := c.getWarps(c.Player.Sector)
 
 	c.printf("\n")
@@ -295,13 +395,26 @@ func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
 			c.printf("%2d  %-22s %9d %11d\n", i+1, cm.Name, int(cm.GetPrice()), canAfford)
 			choices[fmt.Sprintf("%d", i+1)] = cm
 		}
+		repairCost := c.Universe.ConfigInt("cost_of_repair", 250)
+		c.printf(" R  %-22s %9d %s(per point of damage; you have %d)%s\n", "Ship Repair", repairCost, Cyan, c.Player.TotalSystemDamage(), White)
 		c.printf("%s", Reset)
 	})
 
 	for !c.Terminated {
-		input := strings.ToLower(c.PromptString("\nEnter number to buy or <Q> to quit > "))
+		input := strings.ToLower(c.PromptString("\nEnter number to buy, <R> to repair, or <Q> to quit > "))
 		if input == "q" {
 			return
+		}
+		if input == "r" {
+			err := c.Universe.DoErr(func() error {
+				return c.Universe.SolRepair(c.Player)
+			})
+			if err != nil {
+				c.PrintError(err)
+			} else {
+				c.printf("%sAll ship systems repaired.%s\n", LightGreen, Reset)
+			}
+			continue
 		}
 		commodity, exists := choices[input]
 		if !exists {
@@ -381,6 +494,12 @@ func (c *ConsoleUI) DockPort() {
 			continue
 		}
 		for !c.Terminated {
+			// killed mid-dock? the run loop delivers the news and death
+			// notice; just stop trading (the engine already refuses, but
+			// don't loop forever re-prompting a ghost)
+			if c.isDead() {
+				return
+			}
 			var portWants, inHolds int
 			c.Universe.Do(func() {
 				portWants = galwar.ScaleUp(c.Player, port.GetQuantity(item.name))
@@ -407,6 +526,9 @@ func (c *ConsoleUI) DockPort() {
 			continue
 		}
 		for !c.Terminated {
+			if c.isDead() {
+				return
+			}
 			var portHas, inHolds, sellAllow int
 			c.Universe.Do(func() {
 				cm := port.GetCommodity(item.name)
@@ -611,6 +733,12 @@ func (c *ConsoleUI) ExecutePlanetTransfer(commodityName string) {
 }
 
 func (c *ConsoleUI) ExecuteLand() {
+	if err := c.Universe.DoErr(func() error {
+		return c.Universe.CheckSystem(c.Player, galwar.SysThrusters)
+	}); err != nil {
+		c.PrintError(err)
+		return
+	}
 	first := true
 	for !c.Terminated {
 		var planet *galwar.Planet
@@ -664,10 +792,14 @@ func (c *ConsoleUI) ExecuteCommand() {
 	switch command {
 	case "?":
 		c.ExecuteHelp()
+	case "a":
+		c.ExecuteAttack()
 	case "d":
 		c.ExecuteBattleGroup(galwar.MINES)
 	case "f":
 		c.ExecuteBattleGroup(galwar.FIGHTERS)
+	case "h":
+		c.ExecuteDamageControl()
 	case "j":
 		c.ExecuteGenesis()
 	case "m":
@@ -689,8 +821,35 @@ func (c *ConsoleUI) ExecuteCommand() {
 	}
 }
 
+// isDead reports whether the player has been killed (by another player's
+// command) since the UI last checked. Used to bail out of multi-prompt
+// interactions like docking the moment the ship is destroyed.
+func (c *ConsoleUI) isDead() bool {
+	var dead bool
+	c.Universe.Do(func() {
+		dead = c.Player.IsDead()
+	})
+	return dead
+}
+
 func (c *ConsoleUI) Run() {
 	for !c.Terminated {
+		// deliver any news that arrived since the last prompt, so an online
+		// player learns about attacks, kills, and revolts on their own
+		// rhythm rather than only at next login. This runs on the player's
+		// goroutine between commands, so it never garbles half-typed input.
+		var dead bool
+		var news []string
+		c.Universe.Do(func() {
+			dead = c.Player.IsDead()
+			news = c.Universe.TakeNews(c.Player.Id)
+		})
+		PrintNews(c.Term, "Incoming transmission:", news)
+		if dead {
+			c.printf("\n%sYour ship has been destroyed. The Traders Guild will reconstruct you tomorrow.%s\n", LightRed, Reset)
+			c.Terminated = true
+			break
+		}
 		c.DisplaySector(c.Player.Sector)
 		c.ExecuteCommand()
 		c.printf("\n")

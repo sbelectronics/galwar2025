@@ -19,6 +19,7 @@ const (
 	ErrNotFound
 	ErrNotEnoughHolds
 	ErrNoTurns
+	ErrDead
 )
 
 var GameErrorCodeNames = map[GameErrorCode]string{
@@ -34,6 +35,7 @@ var GameErrorCodeNames = map[GameErrorCode]string{
 	ErrNotFound:          "Not found",
 	ErrNotEnoughHolds:    "Not enough holds",
 	ErrNoTurns:           "No turns left",
+	ErrDead:              "Ship destroyed",
 }
 
 type GameError struct {

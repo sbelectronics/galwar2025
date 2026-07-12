@@ -172,6 +172,13 @@ func (gs *gameSession) run() {
 		u.TouchLastSeen(player, time.Now().Unix())
 	})
 
+	// reconstruction-after-death and news delivery; a player who died today
+	// is turned away until tomorrow
+	if !consoleui.SessionStart(u, gs, player) {
+		time.Sleep(100 * time.Millisecond) // let the writer flush
+		return
+	}
+
 	ui := consoleui.NewConsoleUI(u, player, gs)
 	ui.Run()
 	gs.Printf("\nGoodbye, %s!\n", player.GetName())
