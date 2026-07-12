@@ -12,10 +12,22 @@ import (
 // salvage, boobytraps - and writes both records back. The defender does not
 // need to be online; they read about it in their news.
 
-// attrition is the original's coin-flip exchange loop (GWMISC.PAS:322-334):
-// each tick a 50/50-ish roll costs one side a fighter (batched by 100 while
-// both pools exceed 1000), until one committed pool is exhausted. Note the
-// faithful asymmetry: random(100)>50 is a 49/51 split favoring the defender.
+// attrition is the original's coin-flip exchange loop, reproduced verbatim
+// from GWMISC.PAS:322-334 (do not "simplify" - the two decrements below are
+// both in the original and are load-bearing for fidelity):
+//
+//	repeat
+//	 if (n-a>1000) and (fighters-c>1000) then if random(100)>50 then a:=a+100 else c:=c+100;
+//	 if random(100)>50 then a:=a+1 else c:=c+1;
+//	until (a>=n) or (c>=fighters);
+//
+// Each tick a 50/50-ish roll costs one side a fighter; while BOTH pools still
+// exceed 1000 a second roll additionally moves a block of 100 - so a
+// large-fleet iteration removes 101 fighters (100 + 1), the coarse step that
+// keeps million-fighter battles from looping forever. The two rolls are
+// independent, so the block and the single may land on the same side or
+// opposite sides. Note the faithful asymmetry: random(100)>50 is a 49/51
+// split favoring the defender.
 func attrition(attackers int, defenders int) (attackerLoss int, defenderLoss int) {
 	a, c := 0, 0
 	for a < attackers && c < defenders {
