@@ -22,7 +22,7 @@ func nowUnix() int64 {
 // scale and flush rate. If it ever becomes a bottleneck, the upgrade path is
 // per-entity dirty tracking, not a schema change.
 
-const schemaVersion = "3"
+const schemaVersion = "4"
 
 // migration from v1 (M2): commodities gained a restock clock
 const schemaV1toV2 = `ALTER TABLE commodities ADD COLUMN last_restock INTEGER NOT NULL DEFAULT 0;`
@@ -32,6 +32,14 @@ const schemaV2toV3 = `
 ALTER TABLE players ADD COLUMN google_sub TEXT NOT NULL DEFAULT '';
 ALTER TABLE players ADD COLUMN pass_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE players ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;
+`
+
+// migration from v3 (M4): players gained death and ship-damage state
+// (the news table is created by the base schema's IF NOT EXISTS)
+const schemaV3toV4 = `
+ALTER TABLE players ADD COLUMN times_died INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN died_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN systems TEXT NOT NULL DEFAULT '';
 `
 
 const storeSchema = `
@@ -51,7 +59,16 @@ CREATE TABLE IF NOT EXISTS players (
 	money      INTEGER NOT NULL,
 	google_sub TEXT NOT NULL DEFAULT '',
 	pass_hash  TEXT NOT NULL DEFAULT '',
-	last_seen  INTEGER NOT NULL DEFAULT 0
+	last_seen  INTEGER NOT NULL DEFAULT 0,
+	times_died INTEGER NOT NULL DEFAULT 0,
+	died_at    INTEGER NOT NULL DEFAULT 0,
+	systems    TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS news (
+	player_id TEXT NOT NULL,
+	at        INTEGER NOT NULL,
+	msg       TEXT NOT NULL,
+	delivered INTEGER NOT NULL
 );
 -- login sessions are operational state, not world state: SaveUniverse never
 -- touches this table
@@ -143,6 +160,7 @@ func OpenStore(path string) (*Store, error) {
 	}{
 		"1": {schemaV1toV2, "2"},
 		"2": {schemaV2toV3, "3"},
+		"3": {schemaV3toV4, "4"},
 	}
 	for v != schemaVersion {
 		mig, ok := migrations[v]
@@ -186,7 +204,7 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"sectors", "warps", "players", "ports", "planets", "battlegroups", "commodities", "config"} {
+	for _, table := range []string{"sectors", "warps", "players", "ports", "planets", "battlegroups", "commodities", "config", "news"} {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
 			return err
 		}
@@ -212,12 +230,26 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 		}
 	}
 
-	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money, google_sub, pass_hash, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	for _, p := range snap.players {
-		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money, p.googleSub, p.passHash, p.lastSeen); err != nil {
+		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money, p.googleSub, p.passHash, p.lastSeen, p.timesDied, p.diedAt, p.systems); err != nil {
+			return err
+		}
+	}
+
+	insNews, err := tx.Prepare(`INSERT INTO news (player_id, at, msg, delivered) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	for _, n := range snap.news {
+		delivered := 0
+		if n.delivered {
+			delivered = 1
+		}
+		if _, err := insNews.Exec(n.playerID, n.at, n.msg, delivered); err != nil {
 			return err
 		}
 	}
@@ -354,20 +386,42 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 	}
 
 	// players
-	rows, err = s.db.Query(`SELECT id, email, name, sector, money, google_sub, pass_hash, last_seen FROM players ORDER BY rowid`)
+	rows, err = s.db.Query(`SELECT id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems FROM players ORDER BY rowid`)
 	if err != nil {
 		return false, err
 	}
 	for rows.Next() {
 		p := &Player{}
-		var id string
-		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money, &p.GoogleSub, &p.PassHash, &p.LastSeen); err != nil {
+		var id, systems string
+		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money, &p.GoogleSub, &p.PassHash, &p.LastSeen, &p.TimesDied, &p.DiedAt, &systems); err != nil {
 			rows.Close()
 			return false, err
 		}
 		p.Id = PlayerId(id)
 		p.Inventory = inv("player", id)
+		p.Systems = systemsFromString(systems)
 		u.Players.Players = append(u.Players.Players, p)
+	}
+	if err := rows.Close(); err != nil {
+		return false, err
+	}
+
+	// news
+	rows, err = s.db.Query(`SELECT player_id, at, msg, delivered FROM news ORDER BY rowid`)
+	if err != nil {
+		return false, err
+	}
+	for rows.Next() {
+		n := &NewsItem{}
+		var pid string
+		var delivered int
+		if err := rows.Scan(&pid, &n.At, &n.Msg, &delivered); err != nil {
+			rows.Close()
+			return false, err
+		}
+		n.Player = PlayerId(pid)
+		n.Delivered = delivered != 0
+		u.News = append(u.News, n)
 	}
 	if err := rows.Close(); err != nil {
 		return false, err

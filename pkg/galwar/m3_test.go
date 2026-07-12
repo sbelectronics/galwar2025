@@ -19,7 +19,7 @@ func TestTurnEconomy(t *testing.T) {
 	}
 
 	dest := u.Sectors[1].GetWarps()[0]
-	if err := u.MovePlayer(player, dest); err != nil {
+	if _, err := u.MovePlayer(player, dest); err != nil {
 		t.Fatalf("move: %v", err)
 	}
 	if got := player.GetQuantity(TURNS); got != 249 {
@@ -47,7 +47,7 @@ func TestTurnEconomy(t *testing.T) {
 
 	// at zero turns, movement and docking are refused
 	player.SetQuantity(TURNS, 0)
-	if err := u.MovePlayer(player, dest); err == nil {
+	if _, err := u.MovePlayer(player, dest); err == nil {
 		t.Errorf("move allowed with no turns")
 	}
 	if err := u.Dock(player, port); err == nil {
@@ -379,6 +379,9 @@ func TestStoreMigrationV1toV2(t *testing.T) {
 		`ALTER TABLE players DROP COLUMN google_sub`,
 		`ALTER TABLE players DROP COLUMN pass_hash`,
 		`ALTER TABLE players DROP COLUMN last_seen`,
+		`ALTER TABLE players DROP COLUMN times_died`,
+		`ALTER TABLE players DROP COLUMN died_at`,
+		`ALTER TABLE players DROP COLUMN systems`,
 	} {
 		if _, err := db.Exec(ddl); err != nil {
 			t.Fatalf("regress %q: %v", ddl, err)

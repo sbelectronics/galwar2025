@@ -75,8 +75,8 @@ var profanity = []string{
 // impersonating the system or the NPC factions is off the table.
 var reserved = []string{
 	"sysop", "admin", "administrator", "moderator", "system", "server",
-	"federation", "thecabal", "cabal", "renegade", "sol", "galwar",
-	"interstel",
+	"federation", "thefederation", "thecabal", "cabal", "renegade",
+	"therenegades", "sol", "galwar", "interstel",
 }
 
 // spamMarkers are checked against the lowercased raw name (before separator

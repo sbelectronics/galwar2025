@@ -113,6 +113,12 @@ func (s *Server) serve(conn net.Conn) {
 		s.Universe.TouchLastSeen(player, time.Now().Unix())
 	})
 
+	// reconstruction-after-death and news delivery; a player who died today
+	// is turned away until tomorrow
+	if !consoleui.SessionStart(s.Universe, term, player) {
+		return
+	}
+
 	ui := consoleui.NewConsoleUI(s.Universe, player, term)
 	ui.Run()
 	term.Printf("\nGoodbye, %s!\n", player.GetName())

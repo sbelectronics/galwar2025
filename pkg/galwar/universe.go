@@ -19,6 +19,7 @@ type UniverseType struct {
 	Planets      PlanetList
 	Sectors      []Sector
 	Config       map[string]string
+	News         []*NewsItem
 
 	filename    string
 	tasks       chan *task
@@ -121,6 +122,7 @@ func (u *UniverseType) upgrade() {
 	// (missing commodity entries are added at zero; Turns is special-cased
 	// because a zero grant would strand them)
 	for _, p := range u.Players.Players {
+		p.ensureSystems()
 		for _, tg := range TradeGoods {
 			if p.GetCommodity(tg.Name) != nil {
 				continue
@@ -238,8 +240,9 @@ func (u *UniverseType) validate() error {
 			return err
 		}
 		// Be forgiving with players: strand them at Sol rather than refusing
-		// to load the whole universe.
-		if p.Sector < 1 || p.Sector > maxSec {
+		// to load the whole universe. Sector 0 is legitimate off-map parking
+		// for dead ships and NPC faction records.
+		if p.Sector < 0 || p.Sector > maxSec {
 			log.Printf("player %q was in invalid sector %d; moved to sector 1", p.Name, p.Sector)
 			p.Sector = 1
 		}

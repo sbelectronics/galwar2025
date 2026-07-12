@@ -1,5 +1,10 @@
 package galwar
 
+import (
+	"strconv"
+	"strings"
+)
+
 // A Snapshot is a flat, row-oriented copy of the universe, cheap to build on
 // the actor goroutine and safe to write to SQLite from another goroutine
 // afterward. The in-memory universe remains authoritative; the snapshot is
@@ -14,6 +19,16 @@ type playerRow struct {
 	googleSub string
 	passHash  string
 	lastSeen  int64
+	timesDied int
+	diedAt    int64
+	systems   string
+}
+
+type newsRow struct {
+	playerID  string
+	at        int64
+	msg       string
+	delivered bool
 }
 
 type portRow struct {
@@ -62,6 +77,36 @@ type Snapshot struct {
 	battlegroups []battlegroupRow
 	commodities  []commodityRow
 	config       map[string]string
+	news         []newsRow
+}
+
+// systemsToString / systemsFromString serialize the per-system damage
+// counters as a comma-joined list ("" = undamaged).
+func systemsToString(systems []int) string {
+	if len(systems) == 0 {
+		return ""
+	}
+	parts := make([]string, len(systems))
+	for i, d := range systems {
+		parts[i] = itoa(d)
+	}
+	return strings.Join(parts, ",")
+}
+
+func systemsFromString(s string) []int {
+	systems := make([]int, NumSystems)
+	if s == "" {
+		return systems
+	}
+	for i, part := range strings.Split(s, ",") {
+		if i >= NumSystems {
+			break
+		}
+		if n, err := strconv.Atoi(part); err == nil {
+			systems[i] = n
+		}
+	}
+	return systems
 }
 
 func snapCommodities(rows *[]commodityRow, ownerType string, ownerID string, inv []*Commodity) {
@@ -106,8 +151,20 @@ func (u *UniverseType) Snapshot() *Snapshot {
 			googleSub: p.GoogleSub,
 			passHash:  p.PassHash,
 			lastSeen:  p.LastSeen,
+			timesDied: p.TimesDied,
+			diedAt:    p.DiedAt,
+			systems:   systemsToString(p.Systems),
 		})
 		snapCommodities(&s.commodities, "player", string(p.Id), p.Inventory)
+	}
+
+	for _, n := range u.News {
+		s.news = append(s.news, newsRow{
+			playerID:  string(n.Player),
+			at:        n.At,
+			msg:       n.Msg,
+			delivered: n.Delivered,
+		})
 	}
 
 	for i, p := range u.Ports.Ports {

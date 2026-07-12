@@ -210,7 +210,7 @@ func TestMovePlayer(t *testing.T) {
 	u.Generate(100)
 	player := u.NewPlayer("Test", "t@example.com")
 
-	if err := u.MovePlayer(player, 99999); err == nil {
+	if _, err := u.MovePlayer(player, 99999); err == nil {
 		t.Errorf("move to nonexistent sector allowed")
 	}
 
@@ -219,7 +219,7 @@ func TestMovePlayer(t *testing.T) {
 		t.Fatalf("sector 1 has no warps")
 	}
 	dest := warps[0]
-	if err := u.MovePlayer(player, dest); err != nil {
+	if _, err := u.MovePlayer(player, dest); err != nil {
 		t.Fatalf("move 1->%d failed: %v", dest, err)
 	}
 	if player.Sector != dest {
@@ -229,7 +229,7 @@ func TestMovePlayer(t *testing.T) {
 	// find a sector the new location does not link to and confirm it's refused
 	for bad := 1; bad <= 100; bad++ {
 		if bad != dest && !u.Sectors[dest].HasWarp(bad) {
-			if err := u.MovePlayer(player, bad); err == nil {
+			if _, err := u.MovePlayer(player, bad); err == nil {
 				t.Errorf("move to non-adjacent sector %d allowed", bad)
 			}
 			break

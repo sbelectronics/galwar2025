@@ -53,11 +53,28 @@ func scaleDown(player InventoryInterface, w int) int {
 	return d
 }
 
-// Universe-method forms of the trades below: identical rules, plus marking
-// the universe dirty for the write-behind persister. Sessions should call
-// these; the free functions remain for direct engine composition and tests.
+// mortal is satisfied by *Player. Trades take an InventoryInterface, so the
+// liveness check goes through a type assertion: a player killed while sitting
+// at a docking prompt must not be able to complete a trade with the port
+// pointer captured before their death (the ghost-trading window).
+type mortal interface{ IsDead() bool }
+
+func checkAlive(v any) error {
+	if m, ok := v.(mortal); ok && m.IsDead() {
+		return NewGameError(ErrDead, "Your ship has been destroyed. You can't trade.")
+	}
+	return nil
+}
+
+// Universe-method forms of the trades below: identical rules, plus a
+// liveness guard and marking the universe dirty for the write-behind
+// persister. Sessions should call these; the free functions remain for
+// direct engine composition and tests.
 
 func (u *UniverseType) TradeBuy(name string, port PortInterface, player InventoryInterface, quantity int) error {
+	if err := checkAlive(player); err != nil {
+		return err
+	}
 	if err := TradeBuy(name, port, player, quantity); err != nil {
 		return err
 	}
@@ -66,6 +83,9 @@ func (u *UniverseType) TradeBuy(name string, port PortInterface, player Inventor
 }
 
 func (u *UniverseType) TradeSell(name string, port PortInterface, player InventoryInterface, quantity int) error {
+	if err := checkAlive(player); err != nil {
+		return err
+	}
 	if err := TradeSell(name, port, player, quantity); err != nil {
 		return err
 	}
@@ -74,6 +94,9 @@ func (u *UniverseType) TradeSell(name string, port PortInterface, player Invento
 }
 
 func (u *UniverseType) TradeBuyNoLimit(commodity *Commodity, player InventoryInterface, quantity int) error {
+	if err := checkAlive(player); err != nil {
+		return err
+	}
 	if err := TradeBuyNoLimit(commodity, player, quantity); err != nil {
 		return err
 	}

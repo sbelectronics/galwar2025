@@ -53,6 +53,8 @@ func (u *UniverseType) SeedDefaultConfig() {
 		"starting_fighters": "200",
 		"turns_per_day":     "250",
 		"planet_max_mines":  "1000",
+		"cost_of_repair":    "250",
+		"max_holds":         "16384",
 	}
 	if u.Config == nil {
 		u.Config = map[string]string{}
