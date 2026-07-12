@@ -102,8 +102,12 @@ func (u *UniverseType) ResolveReports(targetHandle string) {
 	u.MarkDirty()
 }
 
-// SetBanned bans or unbans a player by handle. Admin action.
+// SetBanned bans or unbans a player by handle. Admin action: the engine
+// verifies the caller is a sysop rather than trusting the UI to gate it.
 func (u *UniverseType) SetBanned(admin *Player, targetHandle string, banned bool) error {
+	if admin == nil || !u.IsAdmin(admin) {
+		return NewGameError(ErrNotOwner, "Access denied.")
+	}
 	target := u.Players.GetByNormalizedName(targetHandle)
 	if target == nil {
 		return NewGameError(ErrNotFound, "No trader by that handle.")
@@ -122,8 +126,12 @@ func (u *UniverseType) SetBanned(admin *Player, targetHandle string, banned bool
 }
 
 // ForceRename changes a player's handle to a moderated new one (admin action).
-// The new handle must pass the moderation pipeline and be unique.
+// The new handle must pass the moderation pipeline and be unique. The engine
+// verifies the caller is a sysop rather than trusting the UI to gate it.
 func (u *UniverseType) ForceRename(admin *Player, targetHandle, newName string) error {
+	if admin == nil || !u.IsAdmin(admin) {
+		return NewGameError(ErrNotOwner, "Access denied.")
+	}
 	target := u.Players.GetByNormalizedName(targetHandle)
 	if target == nil {
 		return NewGameError(ErrNotFound, "No trader by that handle.")

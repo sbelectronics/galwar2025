@@ -6,11 +6,11 @@ import "time"
 // out in two tiers, so the universe isn't cluttered with abandoned ships and
 // so active players can't farm the long-absent as loot pinatas.
 //
-//   Tier 1 (dormant, default 14 days absent): the ship vanishes from sector
+//   Tier 1 (dormant, default 5 days absent): the ship vanishes from sector
 //   displays and scans and can't be attacked. Battlegroups and planets keep
 //   working, but planet production growth freezes (see maintenance).
 //
-//   Tier 2 (expired, default 90 days absent): assets are forfeited to the NPC
+//   Tier 2 (expired, default 30 days absent): assets are forfeited to the NPC
 //   factions exactly as on death and the ship is reset to a starter, but the
 //   account and its stats survive. Returning simply finds the fresh ship.
 //
@@ -31,7 +31,7 @@ func (u *UniverseType) IsDormant(p *Player, now time.Time) bool {
 	if p.IsNPC() || p.IsDead() {
 		return false
 	}
-	return p.daysAbsent(now) >= float64(u.ConfigInt("dormant_days", 14))
+	return p.daysAbsent(now) >= float64(u.ConfigInt("dormant_days", 5))
 }
 
 // IsExpired reports whether a player is due for Tier-2 forfeiture. The Expired
@@ -41,7 +41,7 @@ func (u *UniverseType) IsExpired(p *Player, now time.Time) bool {
 	if p.IsNPC() || p.IsDead() || p.Expired {
 		return false
 	}
-	return p.daysAbsent(now) >= float64(u.ConfigInt("expire_days", 90))
+	return p.daysAbsent(now) >= float64(u.ConfigInt("expire_days", 30))
 }
 
 // GetVisibleObjectsInSector is GetObjectsInSector with Tier-1 dormant ships

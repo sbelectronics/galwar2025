@@ -58,8 +58,14 @@ func (s *Server) acceptLoop() {
 			return // listener closed
 		}
 		if host, _, herr := net.SplitHostPort(conn.RemoteAddr().String()); herr == nil && !s.connRate.Allow(host) {
-			conn.Write([]byte("Too many connections from your address; slow down.\r\n"))
-			conn.Close()
+			// reject off the accept loop, with a write deadline: a slow or
+			// unread client must not stall accepts - and this path fires
+			// precisely during a connection flood
+			go func(c net.Conn) {
+				c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				c.Write([]byte("Too many connections from your address; slow down.\r\n"))
+				c.Close()
+			}(conn)
 			continue
 		}
 		s.mu.Lock()

@@ -59,8 +59,8 @@ func (u *UniverseType) SeedDefaultConfig() {
 		"cost_of_hold":      "500",
 		"cost_of_mine":      "15000",
 		"cost_of_genesis":   "10000",
-		"dormant_days":      "14",
-		"expire_days":       "90",
+		"dormant_days":      "5",
+		"expire_days":       "30",
 		"admins":            "",
 	}
 	if u.Config == nil {

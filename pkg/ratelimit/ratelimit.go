@@ -19,8 +19,16 @@ type Bucket struct {
 }
 
 // NewBucket creates a bucket that refills at ratePerSec up to burst capacity,
-// starting full.
+// starting full. A non-positive rate or sub-1 burst is clamped to a safe
+// minimum: a throttle primitive must never be constructed into a degenerate
+// state that divides by zero or blocks forever.
 func NewBucket(ratePerSec, burst float64) *Bucket {
+	if ratePerSec <= 0 {
+		ratePerSec = 1
+	}
+	if burst < 1 {
+		burst = 1
+	}
 	return &Bucket{capacity: burst, tokens: burst, rate: ratePerSec, last: time.Now()}
 }
 
@@ -61,7 +69,13 @@ func (b *Bucket) Wait() {
 		}
 		need := (1 - b.tokens) / b.rate
 		b.mu.Unlock()
-		time.Sleep(time.Duration(need * float64(time.Second)))
+		// rate is guaranteed positive by NewBucket, so need is finite and
+		// positive; floor the sleep so a near-full bucket can't busy-spin
+		sleep := time.Duration(need * float64(time.Second))
+		if sleep < time.Millisecond {
+			sleep = time.Millisecond
+		}
+		time.Sleep(sleep)
 	}
 }
 

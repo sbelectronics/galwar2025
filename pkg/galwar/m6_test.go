@@ -21,11 +21,17 @@ func TestDormancyHidesShip(t *testing.T) {
 	dormant, _ := u.RegisterPlayer("Dozer", "d@example.com", "")
 	active.MoveTo(50)
 	dormant.MoveTo(50)
+	nearly, _ := u.RegisterPlayer("Nearly", "n@example.com", "")
+	nearly.MoveTo(70) // elsewhere, to keep sector 50's counts clean
 	u.TouchLastSeen(active, now.Unix())
-	u.TouchLastSeen(dormant, now.Add(-20*24*time.Hour).Unix()) // 20 days ago
+	u.TouchLastSeen(dormant, now.Add(-6*24*time.Hour).Unix()) // 6 days: past the 5-day threshold
+	u.TouchLastSeen(nearly, now.Add(-4*24*time.Hour).Unix())  // 4 days: not yet dormant
 
 	if !u.IsDormant(dormant, now) {
-		t.Fatalf("20-days-absent player not dormant (threshold 14)")
+		t.Fatalf("6-days-absent player not dormant (default threshold 5)")
+	}
+	if u.IsDormant(nearly, now) {
+		t.Fatalf("4-days-absent player marked dormant (default threshold 5)")
 	}
 	if u.IsDormant(active, now) {
 		t.Fatalf("just-seen player marked dormant")
@@ -70,10 +76,16 @@ func TestExpirySweep(t *testing.T) {
 		t.Fatalf("battlegroup: %v", err)
 	}
 	p.Money = 999999
-	u.TouchLastSeen(p, now.Add(-100*24*time.Hour).Unix()) // 100 days ago
+	u.TouchLastSeen(p, now.Add(-31*24*time.Hour).Unix()) // 31 days: past the 30-day threshold
 
+	// dormant but not yet expired at, say, 20 days
+	u.TouchLastSeen(p, now.Add(-20*24*time.Hour).Unix())
+	if u.IsExpired(p, now) {
+		t.Fatalf("20-days-absent player expired early (default threshold 30)")
+	}
+	u.TouchLastSeen(p, now.Add(-31*24*time.Hour).Unix())
 	if !u.IsExpired(p, now) {
-		t.Fatalf("100-days-absent player not expired (threshold 90)")
+		t.Fatalf("31-days-absent player not expired (default threshold 30)")
 	}
 
 	u.ExpirePlayer(p, now.Unix())
@@ -182,6 +194,17 @@ func TestBanBlocksAndAudits(t *testing.T) {
 	}
 	if u.IsAdmin(bad) {
 		t.Fatalf("non-admin recognized as admin")
+	}
+
+	// the engine refuses non-admin callers, not just the UI
+	if err := u.SetBanned(bad, "Boss", true); err == nil {
+		t.Errorf("non-admin allowed to ban")
+	}
+	if err := u.SetBanned(nil, "Boss", true); err == nil {
+		t.Errorf("nil caller allowed to ban")
+	}
+	if err := u.ForceRename(bad, "Boss", "Whatever"); err == nil {
+		t.Errorf("non-admin allowed to force-rename")
 	}
 
 	if err := u.SetBanned(admin, "Baddie", true); err != nil {
