@@ -348,6 +348,11 @@ func (t *telnetTerminal) rawByte() (byte, error) {
 // readLineEcho assembles a line with server-side editing. echoChar is what
 // to show per keystroke: 0 = the character itself, '*' = masked, -1 = nothing.
 func (t *telnetTerminal) readLineEcho(echoChar rune) (string, error) {
+	if t.cmdRate != nil {
+		// throttle scripted hammering; here (not in ReadLine) so ReadSecret
+		// - password entry - is covered too
+		t.cmdRate.Wait()
+	}
 	var line []byte
 	for {
 		b, err := t.readByte()
@@ -384,9 +389,6 @@ func (t *telnetTerminal) readLineEcho(echoChar rune) (string, error) {
 }
 
 func (t *telnetTerminal) ReadLine() (string, error) {
-	if t.cmdRate != nil {
-		t.cmdRate.Wait() // throttle scripted hammering
-	}
 	return t.readLineEcho(0)
 }
 

@@ -57,21 +57,21 @@ func main() {
 
 	u.Start()
 
-	if *admin != "" {
+	if adminEmail := strings.TrimSpace(*admin); adminEmail != "" {
 		u.Do(func() {
 			existing := u.ConfigString("admins", "")
 			for _, a := range strings.Split(existing, ",") {
-				if strings.EqualFold(strings.TrimSpace(a), *admin) {
+				if strings.EqualFold(strings.TrimSpace(a), adminEmail) {
 					return // already an admin; don't grow the config across restarts
 				}
 			}
 			if existing == "" {
-				u.SetConfig("admins", *admin)
+				u.SetConfig("admins", adminEmail)
 			} else {
-				u.SetConfig("admins", existing+","+*admin)
+				u.SetConfig("admins", existing+","+adminEmail)
 			}
 		})
-		log.Printf("ensured sysop rights for %s", *admin)
+		log.Printf("ensured sysop rights for %s", adminEmail)
 	}
 
 	persister := galwar.NewPersister(u, store)

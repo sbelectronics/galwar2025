@@ -16,6 +16,14 @@ type Bucket struct {
 	tokens   float64
 	rate     float64 // tokens per second
 	last     time.Time
+	now      func() time.Time // testing seam; nil means time.Now
+}
+
+func (b *Bucket) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+	return time.Now()
 }
 
 // NewBucket creates a bucket that refills at ratePerSec up to burst capacity,
@@ -48,7 +56,7 @@ func (b *Bucket) refill(now time.Time) {
 func (b *Bucket) Allow() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.refill(time.Now())
+	b.refill(b.clock())
 	if b.tokens >= 1 {
 		b.tokens--
 		return true
@@ -61,7 +69,7 @@ func (b *Bucket) Allow() bool {
 func (b *Bucket) Wait() {
 	for {
 		b.mu.Lock()
-		b.refill(time.Now())
+		b.refill(b.clock())
 		if b.tokens >= 1 {
 			b.tokens--
 			b.mu.Unlock()

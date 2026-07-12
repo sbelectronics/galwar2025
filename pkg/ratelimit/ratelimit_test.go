@@ -6,22 +6,31 @@ import (
 )
 
 func TestBucketBurstThenRefill(t *testing.T) {
+	// drive a fake clock so the test is deterministic - no wall-clock sleeps,
+	// so neither scheduler jitter nor a stalled runner can make it flaky
+	fake := time.Unix(1000, 0)
 	b := NewBucket(10, 3) // 10/sec, burst 3
+	b.now = func() time.Time { return fake }
+	b.last = fake
 
-	// burst: 3 immediate allows, then denied
+	// burst: 3 allows with time frozen, then denied (no refill can sneak in)
 	for i := 0; i < 3; i++ {
 		if !b.Allow() {
 			t.Fatalf("burst token %d denied", i)
 		}
 	}
 	if b.Allow() {
-		t.Errorf("4th immediate token allowed past burst of 3")
+		t.Errorf("4th token allowed past burst of 3")
 	}
 
-	// after ~150ms at 10/sec, ~1 token refills
-	time.Sleep(150 * time.Millisecond)
+	// advance exactly 150ms of clock: at 10/sec that's 1.5 tokens
+	fake = fake.Add(150 * time.Millisecond)
 	if !b.Allow() {
-		t.Errorf("token did not refill after 150ms")
+		t.Errorf("token did not refill after 150ms of clock")
+	}
+	// and no more than that one whole token
+	if b.Allow() {
+		t.Errorf("more than one token refilled from 150ms")
 	}
 }
 
