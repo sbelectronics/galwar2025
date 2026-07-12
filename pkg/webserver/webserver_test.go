@@ -49,9 +49,10 @@ func testServer(t *testing.T) (*Server, *galwar.UniverseType, string, func()) {
 
 // wsClient wraps a logged-in websocket connection with read-until helpers.
 type wsClient struct {
-	t    *testing.T
-	conn *websocket.Conn
-	buf  strings.Builder
+	t        *testing.T
+	conn     *websocket.Conn
+	buf      strings.Builder
+	controls strings.Builder // NUL-prefixed control frames, concatenated
 }
 
 func dialGame(t *testing.T, base string, user string) *wsClient {
@@ -102,6 +103,11 @@ func (c *wsClient) expect(substr string) string {
 		if err != nil {
 			c.t.Fatalf("waiting for %q: %v\ngot so far:\n%s", substr, err, c.buf.String())
 		}
+		if len(msg) > 0 && msg[0] == 0 {
+			// out-of-band control frame, not terminal output
+			c.controls.WriteString(string(msg[1:]))
+			continue
+		}
 		// match on what a terminal would display, not the color codes
 		c.buf.WriteString(consoleui.StripANSI(string(msg)))
 	}
@@ -139,9 +145,27 @@ func TestWebEndToEnd(t *testing.T) {
 	c.send("i")
 	c.expect("Credits: 35000")
 	c.expect("Turns: 250")
+	// PASS must put the browser in secret mode so the password is not echoed
+	c.send("pass")
+	c.expect("New password:")
+	c.send("hunter2go")
+	c.expect("Repeat password:")
+	c.send("hunter2go")
+	c.expect("Password set")
+	if got := c.controls.String(); !strings.Contains(got, "secret:on") || !strings.Contains(got, "secret:off") {
+		t.Errorf("PASS did not toggle web secret mode; control frames = %q", got)
+	}
+
 	c.send("q")
 	c.expect("Goodbye, Web Tester!")
 	c.conn.Close()
+
+	// the telnet password we just set works
+	u.Do(func() {
+		if p := u.Players.GetByEmail("web@example.com"); p == nil || !p.CheckTelnetPassword("hunter2go") {
+			t.Errorf("PASS did not set a working telnet password")
+		}
+	})
 
 	// the player exists with the dev sub
 	var sub string

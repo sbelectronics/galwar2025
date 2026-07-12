@@ -100,8 +100,10 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	httpServer.Shutdown(ctx)
+	// close live sessions first: they send a farewell and let their state
+	// settle, and it keeps Shutdown from waiting on any still-tracked request
 	web.CloseAllSessions()
+	httpServer.Shutdown(ctx)
 	if telnet != nil {
 		telnet.Stop()
 	}

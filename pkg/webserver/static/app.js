@@ -32,7 +32,20 @@
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
 
-  ws.onmessage = (ev) => term.write(ev.data);
+  // secret mode: while on, typed characters are not echoed (password entry).
+  // The server toggles it with NUL-prefixed control frames.
+  let secret = false;
+
+  ws.onmessage = (ev) => {
+    const d = ev.data;
+    if (d.length > 0 && d.charCodeAt(0) === 0) {
+      const cmd = d.slice(1);
+      if (cmd === "secret:on") secret = true;
+      else if (cmd === "secret:off") secret = false;
+      return;
+    }
+    term.write(d);
+  };
   ws.onclose = () => term.write("\r\n\r\n*** Connection closed. Reload the page to reconnect. ***\r\n");
   ws.onerror = () => term.write("\r\n*** Connection error ***\r\n");
 
@@ -47,11 +60,11 @@
       } else if (ch === "\x7f" || ch === "\b") {
         if (buf.length > 0) {
           buf = buf.slice(0, -1);
-          term.write("\b \b");
+          if (!secret) term.write("\b \b");
         }
       } else if (ch >= " ") {
         buf += ch;
-        term.write(ch);
+        if (!secret) term.write(ch);
       }
     }
   });

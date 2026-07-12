@@ -79,6 +79,29 @@ func (gs *gameSession) ReadLine() (string, error) {
 	}
 }
 
+// Control frames are out-of-band messages to the browser client, prefixed
+// with NUL (which never appears in ANSI game output) so app.js can tell them
+// apart from terminal bytes. They travel through the same ordered output
+// channel as text, so a control frame lands exactly where it was emitted
+// relative to the surrounding prompts.
+func (gs *gameSession) sendControl(cmd string) {
+	select {
+	case gs.out <- []byte("\x00" + cmd):
+	case <-gs.closed:
+	default:
+		gs.close()
+	}
+}
+
+// ReadSecret implements consoleui.SecretReader: it tells the browser to stop
+// local-echoing before reading, so passwords entered on the web are not
+// displayed (and can't leak into screenshots or session recordings).
+func (gs *gameSession) ReadSecret() (string, error) {
+	gs.sendControl("secret:on")
+	defer gs.sendControl("secret:off")
+	return gs.ReadLine()
+}
+
 func (gs *gameSession) reader() {
 	for {
 		_, msg, err := gs.conn.ReadMessage()

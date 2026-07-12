@@ -101,7 +101,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		Sub   string `json:"sub"`
 		Email string `json:"email"`
 	}
-	if err := idToken.Claims(&claims); err != nil || claims.Sub == "" {
+	// both are required: sub is the account key, and an empty email would
+	// create an unidentifiable account and muddy the legacy-email adoption
+	// path. Google's "email" scope reliably provides both.
+	if err := idToken.Claims(&claims); err != nil || claims.Sub == "" || claims.Email == "" {
 		http.Error(w, "bad claims", http.StatusBadGateway)
 		return
 	}
