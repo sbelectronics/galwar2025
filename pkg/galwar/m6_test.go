@@ -237,6 +237,9 @@ func TestReportsAndForceRename(t *testing.T) {
 	reporter, _ := u.RegisterPlayer("Reporter", "rep@example.com", "")
 	offender, _ := u.RegisterPlayer("Rudename", "off@example.com", "")
 
+	if err := u.FileReport(nil, "Rudename", "x"); err == nil {
+		t.Errorf("nil reporter accepted (would panic on GetName)")
+	}
 	if err := u.FileReport(reporter, "Rudename", "offensive handle"); err != nil {
 		t.Fatalf("file report: %v", err)
 	}

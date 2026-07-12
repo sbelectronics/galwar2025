@@ -60,6 +60,9 @@ func (u *UniverseType) trimAudit() {
 
 // FileReport records a player's report of another player.
 func (u *UniverseType) FileReport(reporter *Player, targetHandle, reason string) error {
+	if reporter == nil {
+		return NewGameError(ErrUnknown, "You must be signed in to file a report.")
+	}
 	targetHandle = strings.TrimSpace(targetHandle)
 	reason = strings.TrimSpace(reason)
 	target := u.Players.GetByNormalizedName(targetHandle)
@@ -69,13 +72,14 @@ func (u *UniverseType) FileReport(reporter *Player, targetHandle, reason string)
 	if target == reporter {
 		return NewGameError(ErrUnknown, "You can't report yourself.")
 	}
+	now := time.Now().Unix()
 	u.Reports = append(u.Reports, &Report{
 		Reporter: reporter.GetName(),
 		Target:   target.GetName(),
 		Reason:   reason,
-		At:       time.Now().Unix(),
+		At:       now,
 	})
-	u.AddAudit(time.Now().Unix(), reporter.GetName(), "report", target.GetName()+": "+reason)
+	u.AddAudit(now, reporter.GetName(), "report", target.GetName()+": "+reason)
 	u.MarkDirty()
 	return nil
 }

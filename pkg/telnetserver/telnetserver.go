@@ -186,13 +186,15 @@ func (s *Server) authenticate(term *telnetTerminal) *galwar.Player {
 			}
 			if player.CheckTelnetPassword(pass) {
 				var banned bool
+				var name string
 				u.Do(func() {
 					banned = player.Banned
-					if banned {
-						u.AddAudit(time.Now().Unix(), player.GetName(), "banned-login-blocked", "telnet")
-					}
+					name = player.GetName()
 				})
 				if banned {
+					// operational log, not the persisted audit ring, so a
+					// banned client can't churn or evict the in-game audit
+					log.Printf("blocked login by banned player %q (telnet)", name)
 					term.Printf("Your account has been suspended. Contact the sysop.\n")
 					return nil
 				}

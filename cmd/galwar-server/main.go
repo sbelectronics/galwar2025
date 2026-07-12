@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/sbelectronics/galwar/pkg/galwar"
@@ -59,13 +60,18 @@ func main() {
 	if *admin != "" {
 		u.Do(func() {
 			existing := u.ConfigString("admins", "")
+			for _, a := range strings.Split(existing, ",") {
+				if strings.EqualFold(strings.TrimSpace(a), *admin) {
+					return // already an admin; don't grow the config across restarts
+				}
+			}
 			if existing == "" {
 				u.SetConfig("admins", *admin)
 			} else {
 				u.SetConfig("admins", existing+","+*admin)
 			}
 		})
-		log.Printf("granted sysop rights to %s", *admin)
+		log.Printf("ensured sysop rights for %s", *admin)
 	}
 
 	persister := galwar.NewPersister(u, store)

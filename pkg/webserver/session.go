@@ -3,6 +3,7 @@ package webserver
 import (
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -156,14 +157,18 @@ func (gs *gameSession) run() {
 
 	var player *galwar.Player
 	var banned bool
+	var bannedName string
 	u.Do(func() {
 		player = gs.server.lookupPlayer(gs.sub, gs.email)
 		if player != nil && player.Banned {
 			banned = true
-			u.AddAudit(time.Now().Unix(), player.GetName(), "banned-login-blocked", "web")
+			bannedName = player.GetName()
 		}
 	})
 	if banned {
+		// operational log, not the persisted audit ring: a banned client
+		// reconnecting must not be able to churn or evict the in-game audit
+		log.Printf("blocked login by banned player %q (web)", bannedName)
 		gs.Printf("\r\nYour account has been suspended. Contact the sysop.\r\n")
 		time.Sleep(100 * time.Millisecond)
 		return
