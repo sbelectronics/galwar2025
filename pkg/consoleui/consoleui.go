@@ -206,7 +206,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 		c.printf("%s\n", HelpLine(line))
 	}
 	c.printf("\n")
-	c.printf("%s\n", HelpLine("Implemented: A, C, D, F, H, I, J, L, M, P, Q, S, Y  (plus [PASS], [REPORT], [SYSOP])"))
+	c.printf("%s\n", HelpLine("Implemented: A, C, D, F, H, I, J, L, M, P, Q, S, W, Y  (plus [PASS], [REPORT], [SYSOP])"))
 }
 
 func (c *ConsoleUI) ExecuteMove() {
@@ -236,6 +236,74 @@ func (c *ConsoleUI) printReport(report []string) {
 	for _, line := range report {
 		c.printf("%s%s%s\n", LightRed, line, Reset)
 	}
+}
+
+// ExecutePlasma is the W command: use a plasma device to add or remove a
+// two-way warp link from the current sector.
+func (c *ConsoleUI) ExecutePlasma() {
+	var have int
+	c.Universe.Do(func() { have = c.Player.GetQuantity(galwar.PLASMA) })
+	if have < 1 {
+		c.printf("You have no plasma devices!\n")
+		return
+	}
+	c.printf("%sPlasma device (%d available)%s\n", LightCyan, have, Reset)
+	choice := strings.ToLower(c.PromptString("(A)dd a warp link, (R)emove one, or <Enter> to abort? "))
+	var action galwar.PlasmaAction
+	switch choice {
+	case "a":
+		action = galwar.PlasmaAdd
+	case "r":
+		action = galwar.PlasmaRemove
+	default:
+		return
+	}
+	target := c.PromptInt("Which sector? ")
+	if c.Terminated {
+		return
+	}
+	var report []string
+	err := c.Universe.DoErr(func() error {
+		r, err := c.Universe.UsePlasma(c.Player, action, target)
+		report = r
+		return err
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	for _, line := range report {
+		c.printf("%s%s%s\n", LightCyan, line, Reset)
+	}
+}
+
+// ExecutePulsar drops pulsar bombs on the planet in the current sector
+// (which the player must own). Reached from the Land menu.
+func (c *ConsoleUI) ExecutePulsar() {
+	var have int
+	c.Universe.Do(func() { have = c.Player.GetQuantity(galwar.PULSAR) })
+	if have < 1 {
+		c.printf("You have no pulsar bombs!\n")
+		return
+	}
+	n := c.PromptInt(fmt.Sprintf("You have %d pulsar bombs. Drop how many? ", have))
+	if c.Terminated || n < 1 {
+		return
+	}
+	if !c.PromptBool(fmt.Sprintf("Really bomb your own planet with %d pulsar bombs (Y/N)[N] ? ", n)) {
+		return
+	}
+	var report []string
+	err := c.Universe.DoErr(func() error {
+		r, err := c.Universe.UsePulsar(c.Player, n)
+		report = r
+		return err
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.printReport(report)
 }
 
 // ExecuteAttack is the original's A command (GWMISC.PAS:269): pick a target
@@ -771,6 +839,8 @@ func (c *ConsoleUI) ExecuteLand() {
 			c.ExecutePlanetTakeCargo(galwar.EQUIPMENT)
 		case "t":
 			c.ExecutePlanetPutCargo()
+		case "b":
+			c.ExecutePulsar()
 		case "l":
 			return
 		case "v":
@@ -781,6 +851,7 @@ func (c *ConsoleUI) ExecuteLand() {
 			c.printf("[2] Take Organics\n")
 			c.printf("[3] Take Equipment\n")
 			c.printf("[T] Transfer Cargo to Planet\n")
+			c.printf("[B] Pulsar-bomb this planet\n")
 			c.printf("[L] Leave Planet\n")
 			c.printf("[V] View Planet Production\n")
 		}
@@ -981,6 +1052,8 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.Terminated = true
 	case "s":
 		c.ExecuteScan()
+	case "w":
+		c.ExecutePlasma()
 	case "y":
 		c.ExecuteAutopilot()
 	}

@@ -161,6 +161,9 @@ func (u *UniverseType) AttackPlayer(attacker *Player, targetId PlayerId, commit 
 // detonating against the killer (checkhitmines, GWMISC.PAS:170-242) - which
 // can kill the killer too - then the death itself.
 func (u *UniverseType) resolveKill(killer *Player, victim *Player, now int64, report []string) []string {
+	if u.tryEmWarp(victim, now) {
+		return append(report, fmt.Sprintf("%s's Emergency Warp fires - they vanish before you can finish them off!", victim.GetName()))
+	}
 	report = append(report, fmt.Sprintf("%s's ship is destroyed!", victim.GetName()))
 
 	// salvage 30-99% of the victim's holds
@@ -186,6 +189,9 @@ func (u *UniverseType) resolveKill(killer *Player, victim *Player, now int64, re
 // dies, and the defender (who may be offline) collects the salvage - noted
 // in their news rather than a report.
 func (u *UniverseType) resolveKillReversed(killer *Player, victim *Player, now int64, report []string) []string {
+	if u.tryEmWarp(victim, now) {
+		return append(report, "Your Emergency Warp fires and flings you clear - you escape with your life!")
+	}
 	report = append(report, "Your ship is destroyed! The Traders Guild will reconstruct you tomorrow.")
 
 	pct := rand.Intn(70) + 30
@@ -212,6 +218,10 @@ func (u *UniverseType) detonateCarriedMines(killer *Player, victim *Player, now 
 		f, h := mineBlast(killer)
 		report = append(report, fmt.Sprintf("One of %s's cargo mines detonates! You lose %d fighters and %d holds.", victim.GetName(), f, h))
 		if killer.GetQuantity(FIGHTERS) <= 0 {
+			if u.tryEmWarp(killer, now) {
+				report = append(report, "Your Emergency Warp fires, hurling you clear of the blast!")
+				break
+			}
 			report = append(report, "The blast tears your ship apart! The Traders Guild will reconstruct you tomorrow.")
 			u.KillPlayer(killer, now)
 			break

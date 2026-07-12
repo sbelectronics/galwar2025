@@ -31,6 +31,9 @@ const (
 	MINES     = "Mines"
 	GENESIS   = "Genesis Devices"
 	TURNS     = "Turns"
+	PLASMA    = "Plasma Devices"
+	PULSAR    = "Pulsar Bombs"
+	EMWARP    = "Emergency Warp"
 )
 
 var TradeGoods = []CommodityDefinition{
@@ -41,6 +44,9 @@ var TradeGoods = []CommodityDefinition{
 	{Commodity: Commodity{Name: FIGHTERS, SellPrice: 98, Sell: true}, ShortName: "Fighters", Holds: 0, Starting: 200, SellAtSol: true, OnPlanet: true},
 	{Commodity: Commodity{Name: MINES, SellPrice: 15000, Sell: true}, ShortName: "Mines", Holds: 0, SellAtSol: true, OnPlanet: true},
 	{Commodity: Commodity{Name: GENESIS, SellPrice: 10000, Sell: true}, ShortName: "Genesis", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: PLASMA, SellPrice: 56000, Sell: true}, ShortName: "Plasma", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: PULSAR, SellPrice: 215000, Sell: true}, ShortName: "Pulsar", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: EMWARP, SellPrice: 27000, Sell: true}, ShortName: "EmWarp", Holds: 0, SellAtSol: true},
 	{Commodity: Commodity{Name: TURNS, SellPrice: 1500, Sell: true}, ShortName: "Turns", Holds: 0, Starting: 250, SellAtSol: true},
 }
 
