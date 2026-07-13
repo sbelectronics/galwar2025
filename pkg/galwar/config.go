@@ -69,7 +69,7 @@ func (u *UniverseType) SeedDefaultConfig() {
 		"dormant_days":       "5",
 		"expire_days":        "30",
 		"admins":             "",
-		// NPC faction AI (see NPC-AI.md). Factions are dormant until the world
+		// NPC faction AI. Factions are dormant until the world
 		// is populated and someone worth challenging emerges; they sleep again
 		// if activity falls off. No calendar activation.
 		"cabal_min_players":         "3",

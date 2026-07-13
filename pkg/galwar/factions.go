@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// NPC faction AI (see NPC-AI.md). Every nightly maintenance the factions'
+// NPC faction AI. Every nightly maintenance the factions'
 // dormant/active state is re-evaluated against how utilized the game is, then
 // active factions take their turn. There is no calendar activation: an
 // underplayed or newbie-only world keeps the factions asleep, so nobody gets
@@ -158,8 +158,14 @@ func (u *UniverseType) gateFactionPlanet(faction *Player, targetValue int, name 
 	}
 	deficit := targetValue - u.PlayerValue(faction)
 	want := deficit / u.ConfigInt("cost_of_fighter", 98)
-	if cap := u.ConfigInt("cabal_max_planet_fighters", 15000); want > cap {
-		want = cap
+	// cabal_max_planet_fighters is a ceiling on the stronghold's total fighters,
+	// not a per-night increment, so a runaway leader can't pump it up forever.
+	existing := 0
+	if fortress != nil {
+		existing = fortress.GetQuantity(FIGHTERS)
+	}
+	if capF := u.ConfigInt("cabal_max_planet_fighters", 15000); existing+want > capF {
+		want = capF - existing
 	}
 	if want < 1 {
 		return fortress
@@ -192,6 +198,12 @@ func (u *UniverseType) factionFortress(faction *Player) *Planet {
 	return nil
 }
 
+// inFedSpace reports whether a sector is Federation-protected (1-10), where
+// combat is prohibited for players and factions alike.
+func inFedSpace(sector int) bool {
+	return sector <= 10
+}
+
 // freeSectorForPlanet picks a random non-Federation sector with no planet.
 func (u *UniverseType) freeSectorForPlanet() int {
 	numsec := len(u.Sectors) - 1
@@ -212,6 +224,11 @@ func (u *UniverseType) freeSectorForPlanet() int {
 // the target was killed. Emergency Warp still saves the target.
 func (u *UniverseType) factionStrike(faction *Player, source *Planet, target *Player, ships int, now int64) bool {
 	if source == nil || target == nil {
+		return false
+	}
+	// Federation space (sectors 1-10) is always safe - no faction can strike a
+	// player sheltering there, mirroring the AttackPlayer rule (combat.go).
+	if inFedSpace(target.Sector) {
 		return false
 	}
 	if avail := source.GetQuantity(FIGHTERS); ships > avail {
@@ -258,7 +275,7 @@ func (u *UniverseType) factionMayhem(faction *Player, fortress *Planet, now time
 		if p.IsNPC() || p.IsDead() || u.IsDormant(p, now) {
 			continue
 		}
-		if u.PlayerValue(p) < floor {
+		if inFedSpace(p.Sector) || u.PlayerValue(p) < floor {
 			continue
 		}
 		targets = append(targets, p)
