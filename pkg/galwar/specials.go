@@ -210,7 +210,13 @@ func (u *UniverseType) tryEmWarp(p *Player, now int64) bool {
 		return false
 	}
 	p.AdjustQuantity(EMWARP, -1)
-	p.MoveTo(1 + rand.Intn(numsec))
+	// warp to a random OTHER sector - landing back where you started is no
+	// escape at all (the original could self-select; we don't)
+	dest := 1 + rand.Intn(numsec)
+	for numsec > 1 && dest == p.Sector {
+		dest = 1 + rand.Intn(numsec)
+	}
+	p.MoveTo(dest)
 	u.AddNews(p.Id, now, "Your Emergency Warp device energized and flung you clear of destruction!")
 	return true
 }

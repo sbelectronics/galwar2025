@@ -23,9 +23,13 @@ type PortList struct {
 	Ports []*Port
 }
 
-// IsService reports whether this is a special service port (Sol, Amazing
-// Devices) rather than a regular trading port. Service ports have fixed
-// inventories and free, turn-less docking.
+// IsService reports whether this is a special-function port rather than a
+// regular commodity-trading port. It is deliberately "any non-trading port":
+// Sol and Amazing Devices today, and any future special port (the Interstel
+// bank, Casino, Vault, Sanctuary) - all of which are free, turn-less, and
+// fixed-inventory by design. Only trading ports charge a turn and restock, so
+// new special ports get service treatment automatically and needn't be listed
+// here. Add a new PortType to the trading side only if it should charge turns.
 func (p *Port) IsService() bool {
 	return p.Goods != TradingPort
 }
