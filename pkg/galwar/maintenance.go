@@ -115,6 +115,10 @@ func (u *UniverseType) RunDailyMaintenance(now time.Time) bool {
 		}
 	}
 
+	// NPC faction AI: wake/sleep the factions by how utilized the world is,
+	// then let the active ones take their turn (see NPC-AI.md)
+	u.runFactionAI(now)
+
 	// drop delivered news older than a week (the original's trim_message
 	// used 3 days; we're a little more generous)
 	u.trimNews(now.Add(-7 * 24 * time.Hour).Unix())
