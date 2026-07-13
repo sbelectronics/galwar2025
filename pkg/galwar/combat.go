@@ -366,3 +366,157 @@ func (u *UniverseType) detonateCarriedMines(killer *Player, victim *Player, now 
 	}
 	return report
 }
+
+// LaunchBattleGroup sends a strike fleet of `ships` fighters from the sender's
+// sector to a target sector, fighting through every sector on the shortest
+// path - hostile garrisons, minefields, and enemy players (whom it can kill
+// outright, remotely) - faithful to battlegroup + battle_sector
+// (TWARS.PAS:913-1202). Surviving ships return to the sender. A single-ship
+// group is a scout: it recons and takes fire from sector defenses but won't
+// pick fights with enemy ships. Requires an intact Battle-Group Computer and
+// costs 1 turn.
+//
+// This is the G command's mobile fleet - distinct from the stationary
+// Battlegroup garrison type (the D/F commands), which is what it fights.
+func (u *UniverseType) LaunchBattleGroup(sender *Player, target int, ships int) ([]string, error) {
+	if sender.IsDead() {
+		return nil, NewGameError(ErrDead, "You are dead.")
+	}
+	if err := u.CheckSystem(sender, SysBGComputer); err != nil {
+		return nil, err
+	}
+	if target < 1 || target >= len(u.Sectors) {
+		return nil, NewGameError(ErrNotFound, "There is no such sector!")
+	}
+	if target == sender.Sector {
+		return nil, NewGameError(ErrUnknown, "You are in that sector!")
+	}
+	if ships < 1 {
+		return nil, NewGameError(ErrNegativeQuantity, "You must send at least one ship.")
+	}
+	if ships > sender.GetQuantity(FIGHTERS) {
+		return nil, NewGameError(ErrNotEnoughQuantity, "You don't have that many fighters.")
+	}
+	route := u.ShortestPathTo(sender.Sector, target)
+	if route == nil {
+		return nil, NewGameError(ErrNotFound, "There is no route to that sector!")
+	}
+	if err := u.spendTurn(sender); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Unix()
+	sender.AdjustQuantity(FIGHTERS, -ships) // the fleet launches
+	fleet := ships
+	report := []string{fmt.Sprintf("Battle group of %d ships away, bound for sector %d!", ships, target)}
+
+	for _, sec := range route[1:] {
+		report = append(report, u.battleSector(sender, sec, &fleet, now)...)
+		if fleet <= 0 {
+			report = append(report, "Your battle group has been destroyed!")
+			break
+		}
+	}
+	if fleet > 0 {
+		sender.AdjustQuantity(FIGHTERS, fleet) // survivors come home
+		report = append(report, fmt.Sprintf("Your battle group returns with %d ships.", fleet))
+	}
+	u.MarkDirty()
+	return report, nil
+}
+
+// battleSector resolves one sector of a battle group's route: recon of ports
+// and planets, then combat against a hostile garrison's fighters and mines,
+// then enemy players. fleet is reduced in place; the returned lines are nil
+// for an empty transit sector (so long routes don't spam). Mines ignore a
+// fleet under 150, and only a battle-mode (>1 ship) group outside Federation
+// space attacks enemy ships.
+func (u *UniverseType) battleSector(sender *Player, sec int, fleet *int, now int64) []string {
+	var report []string
+	note := func(s string) { report = append(report, s) }
+
+	for _, obj := range u.GetObjectsInSector(sec, TYPE_PORT) {
+		note(fmt.Sprintf("Sector %d - Port: %s", sec, obj.GetName()))
+	}
+	for _, obj := range u.GetObjectsInSector(sec, TYPE_PLANET) {
+		note(fmt.Sprintf("Sector %d - Planet: %s", sec, obj.GetName()))
+	}
+
+	// hostile garrison: fighters first, then mines
+	if garrison := u.hostileBattlegroup(sender, sec); garrison != nil {
+		if gf := garrison.GetQuantity(FIGHTERS); gf > 0 {
+			owner := garrison.GetOwnerPlayer()
+			note(fmt.Sprintf("Sector %d - %d fighters belonging to %s", sec, gf, owner.GetName()))
+			aLoss, dLoss := attrition(*fleet, gf)
+			*fleet -= aLoss
+			garrison.AdjustQuantity(FIGHTERS, -dLoss)
+			note(fmt.Sprintf("  Your battle group lost %d ships and destroyed %d fighters.", aLoss, dLoss))
+			u.AddNews(garrison.Owner, now, fmt.Sprintf("%s's battle group hit your defense force in sector %d: you lost %d fighters, they lost %d ships.", sender.GetName(), sec, dLoss, aLoss))
+		}
+		if gm := garrison.GetQuantity(MINES); gm > 0 && *fleet > 0 {
+			note(fmt.Sprintf("Sector %d - %d mines belonging to %s", sec, gm, garrison.GetOwnerPlayer().GetName()))
+			if *fleet < 150 {
+				note("  They did not go off - the fleet was too small to trigger them.")
+			} else {
+				lost, blown := 0, 0
+				for garrison.GetQuantity(MINES) > 0 && *fleet > 0 {
+					a := rand.Intn(200) + 300
+					if a > *fleet {
+						a = *fleet
+					}
+					*fleet -= a
+					lost += a
+					blown++
+					garrison.AdjustQuantity(MINES, -1)
+				}
+				note(fmt.Sprintf("  Mines hit! %d ships destroyed clearing %d mines.", lost, blown))
+				u.AddNews(garrison.Owner, now, fmt.Sprintf("%s's battle group hit your minefield in sector %d: they lost %d ships, %d mines expended.", sender.GetName(), sec, lost, blown))
+			}
+		}
+		if !garrison.HasInventory() {
+			u.Battlegroups.RemoveBattlegroup(garrison)
+		}
+		if *fleet <= 0 {
+			return report
+		}
+	}
+
+	// enemy players: recon always, attack only in battle mode outside fed space
+	battleMode := *fleet > 1 && sec > 10
+	for _, obj := range u.GetObjectsInSector(sec, TYPE_PLAYER) {
+		p, ok := obj.(*Player)
+		if !ok || p == sender || p.IsDead() {
+			continue
+		}
+		if u.IsDormant(p, time.Unix(now, 0)) {
+			continue
+		}
+		if p.IsCloaked() && !sender.HasAntiCloak() {
+			continue
+		}
+		note(fmt.Sprintf("Sector %d - %s with %d fighters!", sec, p.GetName(), p.GetQuantity(FIGHTERS)))
+		if !battleMode {
+			continue
+		}
+		bLoss, cLoss := attrition(*fleet, p.GetQuantity(FIGHTERS))
+		*fleet -= bLoss
+		p.AdjustQuantity(FIGHTERS, -cLoss)
+		note(fmt.Sprintf("  Your battle group lost %d ships and destroyed %d enemy fighters.", bLoss, cLoss))
+		if p.GetQuantity(FIGHTERS) <= 0 {
+			if u.tryEmWarp(p, now) {
+				u.AddNews(p.Id, now, fmt.Sprintf("%s's battle group attacked you in sector %d - your Emergency Warp saved you!", sender.GetName(), sec))
+			} else {
+				note(fmt.Sprintf("  You destroyed %s's ship!", p.GetName()))
+				u.AddNews(p.Id, now, fmt.Sprintf("You were killed by %s's battle group in sector %d!", sender.GetName(), sec))
+				u.KillPlayer(p, now)
+			}
+		} else {
+			u.AddNews(p.Id, now, fmt.Sprintf("%s's battle group attacked you in sector %d: you lost %d fighters (%d remain).", sender.GetName(), sec, cLoss, p.GetQuantity(FIGHTERS)))
+		}
+		if *fleet <= 0 {
+			return report
+		}
+	}
+
+	return report
+}

@@ -206,7 +206,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 		c.printf("%s\n", HelpLine(line))
 	}
 	c.printf("\n")
-	c.printf("%s\n", HelpLine("Implemented: A, B, C, D, F, H, I, J, L, M, P, Q, S, W, Y  (plus [PASS], [REPORT], [SYSOP])"))
+	c.printf("%s\n", HelpLine("Implemented: A, B, C, D, F, G, H, I, J, L, M, P, Q, S, W, Y  (plus [PASS], [REPORT], [SYSOP])"))
 }
 
 func (c *ConsoleUI) ExecuteMove() {
@@ -387,6 +387,38 @@ func (c *ConsoleUI) ExecuteDamageControl() {
 		c.printf("%s\n%sDamage heals 1 point per turn spent; Sol repairs everything for %d credits per point.%s\n",
 			Reset, LightCyan, c.Universe.ConfigInt("cost_of_repair", 250), Reset)
 	})
+}
+
+// ExecuteLaunchGroup is the [G] command: send a battle group (strike fleet)
+// to a remote sector. It fights through the whole route; survivors return.
+func (c *ConsoleUI) ExecuteLaunchGroup() {
+	if err := c.Universe.DoErr(func() error {
+		return c.Universe.CheckSystem(c.Player, galwar.SysBGComputer)
+	}); err != nil {
+		c.PrintError(err)
+		return
+	}
+	target := c.PromptInt("\nSend a battle group to what sector? ")
+	if c.Terminated {
+		return
+	}
+	var have int
+	c.Universe.Do(func() { have = c.Player.GetQuantity(galwar.FIGHTERS) })
+	ships := c.PromptInt(fmt.Sprintf("How many ships do you send (1 = scout; you have %d) ? ", have))
+	if c.Terminated || ships < 1 {
+		return
+	}
+	var report []string
+	err := c.Universe.DoErr(func() error {
+		r, err := c.Universe.LaunchBattleGroup(c.Player, target, ships)
+		report = r
+		return err
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.printReport(report)
 }
 
 // ExecuteUseDevice is the [B] Use Device command. The only activatable device
@@ -1128,6 +1160,8 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.ExecuteBattleGroup(galwar.MINES)
 	case "f":
 		c.ExecuteBattleGroup(galwar.FIGHTERS)
+	case "g":
+		c.ExecuteLaunchGroup()
 	case "h":
 		c.ExecuteDamageControl()
 	case "j":
