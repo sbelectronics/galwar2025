@@ -169,6 +169,10 @@ func (u *UniverseType) upgrade() {
 			}
 		}
 	}
+
+	// universes saved before the device shop existed gain one (and it's
+	// topped up with any newly-added devices)
+	u.ensureAmazingDevices()
 }
 
 // wire sets the unexported back-references that objects need to resolve

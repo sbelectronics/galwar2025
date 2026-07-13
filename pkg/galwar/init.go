@@ -75,6 +75,8 @@ func (u *UniverseType) Generate(numsec int) {
 
 	u.AddPortToSector(1) // Sol
 
+	u.ensureAmazingDevices() // the device shop, at a free low sector
+
 	u.AddPortToSector(3) // for reproducibility
 
 	for a := 11; a <= 425*numsec/2000; a++ {

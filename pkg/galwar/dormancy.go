@@ -44,16 +44,25 @@ func (u *UniverseType) IsExpired(p *Player, now time.Time) bool {
 	return p.daysAbsent(now) >= float64(u.ConfigInt("expire_days", 30))
 }
 
-// GetVisibleObjectsInSector is GetObjectsInSector with Tier-1 dormant ships
-// filtered out. Front-ends use this for sector display and scans; game logic
-// that needs the true contents uses GetObjectsInSector (combat targeting
-// refuses dormant players separately, in AttackPlayer).
-func (u *UniverseType) GetVisibleObjectsInSector(sector int, kind string, now time.Time) []ObjectInterface {
+// GetVisibleObjectsInSector is GetObjectsInSector as seen by viewer: Tier-1
+// dormant ships are hidden, and cloaked ships are hidden unless the viewer
+// carries an anti-cloaking device. The viewer always sees themselves. Passing
+// a nil viewer means "no anti-cloak" (an anonymous observer). Front-ends use
+// this for sector display and scans; game logic that needs the true contents
+// uses GetObjectsInSector, with combat targeting checking dormancy/cloak
+// separately in AttackPlayer.
+func (u *UniverseType) GetVisibleObjectsInSector(sector int, kind string, viewer *Player, now time.Time) []ObjectInterface {
+	seeCloaked := viewer != nil && viewer.HasAntiCloak()
 	objs := u.GetObjectsInSector(sector, kind)
 	out := objs[:0]
 	for _, obj := range objs {
-		if p, ok := obj.(*Player); ok && u.IsDormant(p, now) {
-			continue
+		if p, ok := obj.(*Player); ok && p != viewer {
+			if u.IsDormant(p, now) {
+				continue
+			}
+			if p.IsCloaked() && !seeCloaked {
+				continue
+			}
 		}
 		out = append(out, obj)
 	}

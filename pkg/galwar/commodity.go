@@ -17,6 +17,7 @@ type CommodityDefinition struct {
 	Starting           int
 	SellAtPorts        bool
 	SellAtSol          bool
+	SellAtDevices      bool // sold at the Amazing Devices port
 	OnPlanet           bool
 	PlanetStarting     int
 	PlanetProdStarting int
@@ -31,6 +32,14 @@ const (
 	MINES     = "Mines"
 	GENESIS   = "Genesis Devices"
 	TURNS     = "Turns"
+	PLASMA    = "Plasma Devices"
+	PULSAR    = "Pulsar Bombs"
+	EMWARP    = "Emergency Warp"
+	// devices sold at the Amazing Devices port; owning >= 1 gives the effect,
+	// extra copies do nothing
+	CLOAK      = "Cloaking Device"
+	ANTICLOAK  = "Anti-Cloaking Device"
+	PULSARTUBE = "Pulsar Tube"
 )
 
 var TradeGoods = []CommodityDefinition{
@@ -41,7 +50,13 @@ var TradeGoods = []CommodityDefinition{
 	{Commodity: Commodity{Name: FIGHTERS, SellPrice: 98, Sell: true}, ShortName: "Fighters", Holds: 0, Starting: 200, SellAtSol: true, OnPlanet: true},
 	{Commodity: Commodity{Name: MINES, SellPrice: 15000, Sell: true}, ShortName: "Mines", Holds: 0, SellAtSol: true, OnPlanet: true},
 	{Commodity: Commodity{Name: GENESIS, SellPrice: 10000, Sell: true}, ShortName: "Genesis", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: PLASMA, SellPrice: 56000, Sell: true}, ShortName: "Plasma", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: PULSAR, SellPrice: 215000, Sell: true}, ShortName: "Pulsar", Holds: 0, SellAtSol: true},
+	{Commodity: Commodity{Name: EMWARP, SellPrice: 27000, Sell: true}, ShortName: "EmWarp", Holds: 0, SellAtSol: true},
 	{Commodity: Commodity{Name: TURNS, SellPrice: 1500, Sell: true}, ShortName: "Turns", Holds: 0, Starting: 250, SellAtSol: true},
+	{Commodity: Commodity{Name: CLOAK, SellPrice: 18000, Sell: true}, ShortName: "Cloak", Holds: 0, SellAtDevices: true},
+	{Commodity: Commodity{Name: ANTICLOAK, SellPrice: 22000, Sell: true}, ShortName: "Anticloak", Holds: 0, SellAtDevices: true},
+	{Commodity: Commodity{Name: PULSARTUBE, SellPrice: 350000, Sell: true}, ShortName: "PulsarTube", Holds: 0, SellAtDevices: true},
 }
 
 // FindCommodityDef returns the definition for a commodity name, or nil if

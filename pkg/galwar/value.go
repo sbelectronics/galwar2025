@@ -20,6 +20,12 @@ func (u *UniverseType) PlayerValue(p *Player) int {
 	value += p.GetQuantity(HOLDS) * costHold
 	value += p.GetQuantity(MINES) * costMine
 	value += p.GetQuantity(GENESIS) * costGenesis
+	value += p.GetQuantity(PLASMA) * u.ConfigInt("cost_of_plasma", 56000)
+	value += p.GetQuantity(PULSAR) * u.ConfigInt("cost_of_pulsar", 215000)
+	value += p.GetQuantity(EMWARP) * u.ConfigInt("cost_of_escape", 27000)
+	value += p.GetQuantity(CLOAK) * u.ConfigInt("cost_of_cloak", 18000)
+	value += p.GetQuantity(ANTICLOAK) * u.ConfigInt("cost_of_anticloak", 22000)
+	value += p.GetQuantity(PULSARTUBE) * u.ConfigInt("cost_of_pulsartube", 350000)
 	value += cargoValue(p)
 
 	for _, bg := range u.Battlegroups.Battlegroups {

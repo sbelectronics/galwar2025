@@ -77,6 +77,12 @@ func (u *UniverseType) MovePlayer(p *Player, dest int) ([]string, error) {
 			fmt.Sprintf("You destroyed %d defending fighters, %d remain.", dLoss, hostile.GetQuantity(FIGHTERS)))
 
 		if p.GetQuantity(FIGHTERS) <= 0 && hostile.GetQuantity(FIGHTERS) > 0 {
+			if u.tryEmWarp(p, now) {
+				report = append(report, "Your Emergency Warp fires - you escape the defenders and vanish!")
+				u.AddNews(hostile.Owner, now, fmt.Sprintf("Your fighters in sector %d drove off %s (they emergency-warped away).", dest, p.GetName()))
+				u.MarkDirty()
+				return report, nil
+			}
 			report = append(report, "Your ship is destroyed! The Traders Guild will reconstruct you tomorrow.")
 			u.AddNews(hostile.Owner, now, fmt.Sprintf("Your fighters in sector %d destroyed %s's ship (you lost %d fighters).", dest, p.GetName(), dLoss))
 			u.KillPlayer(p, now)
@@ -97,19 +103,26 @@ func (u *UniverseType) MovePlayer(p *Player, dest int) ([]string, error) {
 	if hostile != nil && hostile.GetQuantity(MINES) > 0 {
 		owner := hostile.GetOwnerPlayer()
 		blasted := 0
+		escaped := false
 		for hostile.GetQuantity(MINES) > 0 {
 			hostile.AdjustQuantity(MINES, -1)
 			blasted++
 			f, h := mineBlast(p)
 			report = append(report, fmt.Sprintf("A mine belonging to %s detonates! You lose %d fighters and %d holds.", owner.GetName(), f, h))
 			if p.GetQuantity(FIGHTERS) <= 0 {
+				if u.tryEmWarp(p, now) {
+					report = append(report, "Your Emergency Warp fires, hurling you clear of the minefield!")
+					u.AddNews(hostile.Owner, now, fmt.Sprintf("Your minefield in sector %d drove off %s (they emergency-warped away).", dest, p.GetName()))
+					escaped = true
+					break
+				}
 				report = append(report, "The blast tears your ship apart! The Traders Guild will reconstruct you tomorrow.")
 				u.AddNews(hostile.Owner, now, fmt.Sprintf("Your minefield in sector %d destroyed %s's ship (%d mines expended).", dest, p.GetName(), blasted))
 				u.KillPlayer(p, now)
 				break
 			}
 		}
-		if !p.IsDead() {
+		if !p.IsDead() && !escaped {
 			u.AddNews(hostile.Owner, now, fmt.Sprintf("%s hit your minefield in sector %d (%d mines expended).", p.GetName(), dest, blasted))
 		}
 		if !hostile.HasInventory() {
@@ -143,7 +156,9 @@ func (u *UniverseType) Dock(player *Player, port *Port) error {
 	if err := u.CheckSystem(player, SysCargoBay); err != nil {
 		return err
 	}
-	if port.Goods == Sol {
+	// special service ports (Sol, Amazing Devices) are free and turn-less;
+	// only regular trading ports charge a turn and restock
+	if port.IsService() {
 		return nil
 	}
 	if err := u.spendTurn(player); err != nil {
