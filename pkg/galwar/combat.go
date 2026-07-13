@@ -94,6 +94,10 @@ func (u *UniverseType) AttackPlayer(attacker *Player, targetId PlayerId, commit 
 	if u.IsDormant(target, time.Now()) {
 		return nil, NewGameError(ErrNotFound, "They aren't here anymore!")
 	}
+	// a cloaked target can't be seen (hence attacked) without an anti-cloak
+	if target.IsCloaked() && !attacker.HasAntiCloak() {
+		return nil, NewGameError(ErrNotFound, "There's no one here to attack.")
+	}
 	if target == attacker {
 		return nil, NewGameError(ErrUnknown, "Attacking yourself is not a strategy.")
 	}
@@ -207,6 +211,139 @@ func (u *UniverseType) resolveKillReversed(killer *Player, victim *Player, now i
 
 	u.KillPlayer(victim, now)
 	return report
+}
+
+// InvadePlanet attacks a hostile planet in the attacker's sector, faithful to
+// claim_planet + land (PLANET.PAS:417-1043): the committed fighters fight the
+// planet's garrison (attrition), then the planet's mines detonate against the
+// attacker; break the garrison and survive the minefield and you capture the
+// planet - and a bloody assault damages its economy (damageplanet). The owner
+// need not be online; they learn of it from their news. Costs 1 turn.
+//
+// Phaser and stun-mine phases from the original are placeholders until devices
+// land (Phase C), matching the mine-blast system-damage stand-in.
+func (u *UniverseType) InvadePlanet(attacker *Player, commit int) ([]string, error) {
+	if attacker.IsDead() {
+		return nil, NewGameError(ErrDead, "You are dead.")
+	}
+	if err := u.CheckSystem(attacker, SysThrusters); err != nil {
+		return nil, err
+	}
+	var planet *Planet
+	for _, pl := range u.Planets.Planets {
+		if pl.Sector == attacker.Sector {
+			planet = pl
+			break
+		}
+	}
+	if planet == nil {
+		return nil, NewGameError(ErrNotFound, "There is no planet in this sector.")
+	}
+	if planet.Owner == attacker.Id {
+		return nil, NewGameError(ErrAlreadyExists, "You already own this planet - land on it instead.")
+	}
+	if commit < 1 {
+		return nil, NewGameError(ErrNegativeQuantity, "You must commit at least one fighter.")
+	}
+	if commit > attacker.GetQuantity(FIGHTERS) {
+		return nil, NewGameError(ErrNotEnoughQuantity, "You don't have that many fighters.")
+	}
+	if err := u.spendTurn(attacker); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Unix()
+	sector := attacker.Sector
+	oldOwner := planet.Owner
+	startFighters := attacker.GetQuantity(FIGHTERS)
+	var report []string
+
+	// fighter attrition against the garrison
+	if garrison := planet.GetQuantity(FIGHTERS); garrison > 0 {
+		aLoss, dLoss := attrition(commit, garrison)
+		attacker.AdjustQuantity(FIGHTERS, -aLoss)
+		planet.AdjustQuantity(FIGHTERS, -dLoss)
+		report = append(report,
+			fmt.Sprintf("You lost %d fighters, %d remain.", aLoss, attacker.GetQuantity(FIGHTERS)),
+			fmt.Sprintf("You destroyed %d of the planet's fighters, %d remain.", dLoss, planet.GetQuantity(FIGHTERS)))
+
+		if planet.GetQuantity(FIGHTERS) > 0 {
+			// the garrison held
+			if attacker.GetQuantity(FIGHTERS) <= 0 {
+				if u.tryEmWarp(attacker, now) {
+					report = append(report, "Your Emergency Warp fires - you flee the planet's defenses!")
+				} else {
+					report = append(report, "Your ship is destroyed by the planetary defenses! The Traders Guild will reconstruct you tomorrow.")
+					u.AddNews(oldOwner, now, fmt.Sprintf("Your planet %s in sector %d repelled and destroyed the invader %s.", planet.Name, sector, attacker.GetName()))
+					u.KillPlayer(attacker, now)
+				}
+			} else {
+				report = append(report, "The planet's defenders hold - you failed to break through.")
+				u.AddNews(oldOwner, now, fmt.Sprintf("Your planet %s in sector %d repelled an invasion by %s.", planet.Name, sector, attacker.GetName()))
+			}
+			u.MarkDirty()
+			return report, nil
+		}
+	}
+
+	// garrison broken (or absent): the planet's mines detonate against you
+	if mines := planet.GetQuantity(MINES); mines > 0 {
+		for i := 0; i < mines; i++ {
+			planet.AdjustQuantity(MINES, -1)
+			f, h := mineBlast(attacker)
+			report = append(report, fmt.Sprintf("A planetary mine detonates! You lose %d fighters and %d holds.", f, h))
+			if attacker.GetQuantity(FIGHTERS) <= 0 {
+				if u.tryEmWarp(attacker, now) {
+					report = append(report, "Your Emergency Warp fires, hurling you clear of the minefield!")
+				} else {
+					report = append(report, "The blast tears your ship apart! The Traders Guild will reconstruct you tomorrow.")
+					u.AddNews(oldOwner, now, fmt.Sprintf("Your planet %s's minefield in sector %d destroyed the invader %s.", planet.Name, sector, attacker.GetName()))
+					u.KillPlayer(attacker, now)
+				}
+				u.MarkDirty()
+				return report, nil
+			}
+		}
+	}
+
+	// capture
+	planet.Owner = attacker.Id
+	report = append(report, fmt.Sprintf("You have captured %s!", planet.Name))
+	u.AddNews(oldOwner, now, fmt.Sprintf("Your planet %s in sector %d has been captured by %s!", planet.Name, sector, attacker.GetName()))
+
+	// damageplanet: a hard-fought assault (fighters spent / 20 >= 100) wrecks
+	// the planet's economy, and can destroy it outright (PLANET.PAS:327-363)
+	if dam := (startFighters - attacker.GetQuantity(FIGHTERS)) / 20; dam >= 100 {
+		for _, name := range []string{ORE, ORGANICS, EQUIPMENT} {
+			c := planet.GetCommodity(name)
+			if c == nil {
+				continue
+			}
+			d := c.Prod
+			if d > dam {
+				d = dam
+			}
+			c.Prod -= d
+			if c.Quantity > c.Prod*10 {
+				c.Quantity = c.Prod * 10
+			}
+		}
+		dead := true
+		for _, name := range []string{ORE, ORGANICS, EQUIPMENT} {
+			if c := planet.GetCommodity(name); c != nil && c.Prod > 0 {
+				dead = false
+			}
+		}
+		if dead {
+			report = append(report, fmt.Sprintf("The assault was so fierce that %s's structure collapses - the planet is destroyed!", planet.Name))
+			u.Planets.RemovePlanet(planet)
+		} else {
+			report = append(report, "The bombardment gutted the planet's production infrastructure.")
+		}
+	}
+
+	u.MarkDirty()
+	return report, nil
 }
 
 // detonateCarriedMines is checkhitmines: every sector mine the victim was

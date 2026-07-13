@@ -38,7 +38,7 @@ func TestDormancyHidesShip(t *testing.T) {
 	}
 
 	// dormant ship hidden from the sector, active ship visible
-	vis := u.GetVisibleObjectsInSector(50, TYPE_PLAYER, now)
+	vis := u.GetVisibleObjectsInSector(50, TYPE_PLAYER, active, now)
 	for _, o := range vis {
 		if o == dormant {
 			t.Errorf("dormant ship shown in sector")

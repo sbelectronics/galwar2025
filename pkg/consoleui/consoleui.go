@@ -161,7 +161,7 @@ func (c *ConsoleUI) DisplaySector(secnum int) {
 	c.Universe.Do(func() {
 		c.printf("%sSector: %d%s\n", LightRed, secnum, Reset)
 
-		objs := c.Universe.GetVisibleObjectsInSector(secnum, "", now)
+		objs := c.Universe.GetVisibleObjectsInSector(secnum, "", c.Player, now)
 		for _, obj := range objs {
 			if obj == c.Player {
 				// don't show yourself
@@ -186,7 +186,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 		"             [COMBAT]             [TACTICAL]          [MOVEMENT]            ",
 		"",
 		"        [A] Attack Player      [S] Sensor Scan     [M] Move to Sector       ",
-		"        [D] Drop Mine          [C] Computer        [L] Land on planet       ",
+		"        [D] Drop Mine          [C] Computer        [L] Land/Invade planet   ",
 		"        [F] Take/Leave fgtrs   [I] Your info       [P] Dock at port         ",
 		"        [G] Launch Group       [B] Use Device      [Y] Engage Autopilot     ",
 		"                               [H] Damage Control  [R] Starbase Transporter ",
@@ -206,7 +206,7 @@ func (c *ConsoleUI) ExecuteHelp() {
 		c.printf("%s\n", HelpLine(line))
 	}
 	c.printf("\n")
-	c.printf("%s\n", HelpLine("Implemented: A, C, D, F, H, I, J, L, M, P, Q, S, W, Y  (plus [PASS], [REPORT], [SYSOP])"))
+	c.printf("%s\n", HelpLine("Implemented: A, B, C, D, F, H, I, J, L, M, P, Q, S, W, Y  (plus [PASS], [REPORT], [SYSOP])"))
 }
 
 func (c *ConsoleUI) ExecuteMove() {
@@ -318,7 +318,7 @@ func (c *ConsoleUI) ExecuteAttack() {
 	var targets []candidate
 	now := time.Now()
 	c.Universe.Do(func() {
-		for _, obj := range c.Universe.GetVisibleObjectsInSector(c.Player.Sector, galwar.TYPE_PLAYER, now) {
+		for _, obj := range c.Universe.GetVisibleObjectsInSector(c.Player.Sector, galwar.TYPE_PLAYER, c.Player, now) {
 			p, ok := obj.(*galwar.Player)
 			if !ok || p == c.Player || p.IsDead() {
 				continue
@@ -389,6 +389,46 @@ func (c *ConsoleUI) ExecuteDamageControl() {
 	})
 }
 
+// ExecuteUseDevice is the [B] Use Device command. The only activatable device
+// so far is the Pulsar Tube, which launches pulsar bombs at a planet in your
+// sector from orbit (500/bomb, any planet).
+func (c *ConsoleUI) ExecuteUseDevice() {
+	var tubes, bombs, planets int
+	c.Universe.Do(func() {
+		tubes = c.Player.GetQuantity(galwar.PULSARTUBE)
+		bombs = c.Player.GetQuantity(galwar.PULSAR)
+		planets = len(c.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PLANET))
+	})
+	if tubes < 1 {
+		c.printf("You have no usable devices.\n")
+		return
+	}
+	// (when more activatable devices exist, this becomes a menu)
+	if planets == 0 {
+		c.printf("There is no planet here to bomb.\n")
+		return
+	}
+	if bombs < 1 {
+		c.printf("You have no pulsar bombs to launch.\n")
+		return
+	}
+	n := c.PromptInt(fmt.Sprintf("Pulsar Tube: launch how many of your %d pulsar bombs? ", bombs))
+	if c.Terminated || n < 1 {
+		return
+	}
+	var report []string
+	err := c.Universe.DoErr(func() error {
+		r, err := c.Universe.UsePulsarTube(c.Player, n)
+		report = r
+		return err
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.printReport(report)
+}
+
 func (c *ConsoleUI) ExecuteScan() {
 	if err := c.Universe.DoErr(func() error {
 		return c.Universe.CheckSystem(c.Player, galwar.SysSensors)
@@ -448,7 +488,9 @@ func (c *ConsoleUI) ExecuteAutopilot() {
 	}
 }
 
-func (c *ConsoleUI) DockSolPort(port *galwar.Port) {
+// DockServicePort is the fixed-price buy menu for special ports (Sol, Amazing
+// Devices): list each item with its price and let the player buy any number.
+func (c *ConsoleUI) DockServicePort(port *galwar.Port) {
 	choices := map[string]*galwar.Commodity{}
 
 	c.Universe.Do(func() {
@@ -532,8 +574,8 @@ func (c *ConsoleUI) DockPort() {
 		return
 	}
 
-	if port.Goods == galwar.Sol {
-		c.DockSolPort(port)
+	if port.Goods == galwar.Sol || port.Goods == galwar.AmazingDevices {
+		c.DockServicePort(port)
 		return
 	}
 
@@ -802,6 +844,41 @@ func (c *ConsoleUI) ExecutePlanetTransfer(commodityName string) {
 	}
 }
 
+// ExecuteInvade attacks a hostile planet in the current sector (the L command
+// when the planet isn't yours), faithful to the original's land assault.
+func (c *ConsoleUI) ExecuteInvade() {
+	var have int
+	var planetName, ownerName string
+	c.Universe.Do(func() {
+		have = c.Player.GetQuantity(galwar.FIGHTERS)
+		for _, obj := range c.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PLANET) {
+			if pl, ok := obj.(*galwar.Planet); ok {
+				planetName = pl.GetName()
+				ownerName = pl.GetOwnerPlayer().GetName()
+			}
+		}
+	})
+	c.printf("%s%s is held by %s.%s\n", LightRed, planetName, ownerName, Reset)
+	if !c.PromptBool("Invade it (Y/N)[N] ? ") {
+		return
+	}
+	commit := c.PromptIntDefault(fmt.Sprintf("Commit how many of your %d fighters [%d] ? ", have, have), have)
+	if c.Terminated {
+		return
+	}
+	var report []string
+	err := c.Universe.DoErr(func() error {
+		r, err := c.Universe.InvadePlanet(c.Player, commit)
+		report = r
+		return err
+	})
+	if err != nil {
+		c.PrintError(err)
+		return
+	}
+	c.printReport(report)
+}
+
 func (c *ConsoleUI) ExecuteLand() {
 	if err := c.Universe.DoErr(func() error {
 		return c.Universe.CheckSystem(c.Player, galwar.SysThrusters)
@@ -809,6 +886,25 @@ func (c *ConsoleUI) ExecuteLand() {
 		c.PrintError(err)
 		return
 	}
+
+	// a planet you don't own is invaded, not landed on
+	var owned, foreign bool
+	c.Universe.Do(func() {
+		if _, err := c.Universe.Planets.GetPlanet(c.Player, c.Player.Sector, galwar.MUST_EXIST); err == nil {
+			owned = true
+			return
+		}
+		foreign = len(c.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PLANET)) > 0
+	})
+	if !owned {
+		if foreign {
+			c.ExecuteInvade()
+		} else {
+			c.printf("No planet found in this sector.\n")
+		}
+		return
+	}
+
 	first := true
 	for !c.Terminated {
 		var planet *galwar.Planet
@@ -1024,6 +1120,8 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.ExecuteHelp()
 	case "a":
 		c.ExecuteAttack()
+	case "b":
+		c.ExecuteUseDevice()
 	case "c":
 		c.ExecuteComputer()
 	case "d":

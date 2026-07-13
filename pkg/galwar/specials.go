@@ -3,6 +3,7 @@ package galwar
 import (
 	"fmt"
 	"math/rand"
+	"time"
 )
 
 // Special stockpile items (Sol-sold, carry any number): Plasma devices rewire
@@ -106,8 +107,57 @@ func (u *UniverseType) UsePulsar(p *Player, bombs int) ([]string, error) {
 		return nil, err
 	}
 	p.AdjustQuantity(PULSAR, -bombs)
+	report := u.bombPlanet(planet, 1000*bombs)
+	u.MarkDirty()
+	return report, nil
+}
 
-	perBomb := 1000 * bombs
+// UsePulsarTube is the orbital strike: with a Pulsar Tube device you can bomb
+// any planet in your sector (owned or not) at 500 production per bomb - the
+// original Pulsar Tube's rate (DEVICE.PAS:884). Consumes the bombs and 1 turn;
+// notifies an enemy owner. This is the [B] Use Device action.
+func (u *UniverseType) UsePulsarTube(p *Player, bombs int) ([]string, error) {
+	if p.IsDead() {
+		return nil, NewGameError(ErrDead, "You are dead.")
+	}
+	if p.GetQuantity(PULSARTUBE) < 1 {
+		return nil, NewGameError(ErrNotEnoughQuantity, "You don't have a Pulsar Tube.")
+	}
+	if bombs < 1 {
+		return nil, NewGameError(ErrNegativeQuantity, "You must launch at least one bomb.")
+	}
+	var planet *Planet
+	for _, pl := range u.Planets.Planets {
+		if pl.Sector == p.Sector {
+			planet = pl
+			break
+		}
+	}
+	if planet == nil {
+		return nil, NewGameError(ErrNotFound, "There is no planet in this sector.")
+	}
+	if p.GetQuantity(PULSAR) < bombs {
+		return nil, NewGameError(ErrNotEnoughQuantity, "You don't have that many pulsar bombs.")
+	}
+	if err := u.spendTurn(p); err != nil {
+		return nil, err
+	}
+	owner := planet.Owner
+	name := planet.Name
+	p.AdjustQuantity(PULSAR, -bombs)
+	report := u.bombPlanet(planet, 500*bombs)
+	if owner != p.Id {
+		u.AddNews(owner, time.Now().Unix(), fmt.Sprintf("Your planet %s in sector %d was pulsar-bombed from orbit by %s!", name, p.Sector, p.GetName()))
+	}
+	u.MarkDirty()
+	return report, nil
+}
+
+// bombPlanet applies perBomb production damage to each of the planet's ore,
+// organics, and equipment (capping stock at 10x the new rate), destroying the
+// planet if all three production rates reach zero. Shared by the owned-planet
+// bomb and the orbital Pulsar Tube.
+func (u *UniverseType) bombPlanet(planet *Planet, perBomb int) []string {
 	report := []string{fmt.Sprintf("Pulsar bombardment of %s:", planet.Name)}
 	for _, name := range []string{ORE, ORGANICS, EQUIPMENT} {
 		c := planet.GetCommodity(name)
@@ -124,7 +174,6 @@ func (u *UniverseType) UsePulsar(p *Player, bombs int) ([]string, error) {
 		}
 		report = append(report, fmt.Sprintf("  %s production destroyed: %d", name, d))
 	}
-
 	dead := true
 	for _, name := range []string{ORE, ORGANICS, EQUIPMENT} {
 		if c := planet.GetCommodity(name); c != nil && c.Prod > 0 {
@@ -135,8 +184,18 @@ func (u *UniverseType) UsePulsar(p *Player, bombs int) ([]string, error) {
 		report = append(report, fmt.Sprintf("%s's structure collapses - the planet is destroyed!", planet.Name))
 		u.Planets.RemovePlanet(planet)
 	}
-	u.MarkDirty()
-	return report, nil
+	return report
+}
+
+// IsCloaked reports whether a player is hidden by a cloaking device. Binary:
+// one or many cloaks give the same effect.
+func (p *Player) IsCloaked() bool {
+	return p.GetQuantity(CLOAK) >= 1
+}
+
+// HasAntiCloak reports whether a player can see through cloaks. Binary.
+func (p *Player) HasAntiCloak() bool {
+	return p.GetQuantity(ANTICLOAK) >= 1
 }
 
 // tryEmWarp fires an Emergency Warp if the player carries one: consume it,

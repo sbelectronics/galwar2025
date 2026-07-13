@@ -156,7 +156,9 @@ func (u *UniverseType) Dock(player *Player, port *Port) error {
 	if err := u.CheckSystem(player, SysCargoBay); err != nil {
 		return err
 	}
-	if port.Goods == Sol {
+	// special service ports (Sol, Amazing Devices) are free and turn-less;
+	// only regular trading ports charge a turn and restock
+	if port.IsService() {
 		return nil
 	}
 	if err := u.spendTurn(player); err != nil {
