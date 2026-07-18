@@ -166,15 +166,25 @@ func (s *Server) authenticate(term *telnetTerminal) *galwar.Player {
 			return player
 		}
 
+		// snapshot the fields we need on the actor; the bcrypt comparison
+		// below is slow, so it must happen off-actor (never hold the universe
+		// for it), and reading Player fields off-actor would be a data race
 		var player *galwar.Player
+		var passHash, name string
+		var banned bool
 		u.Do(func() {
 			player = u.Players.GetByNormalizedName(line)
+			if player != nil {
+				passHash = player.PassHash
+				name = player.GetName()
+				banned = player.Banned
+			}
 		})
 		if player == nil {
 			term.Printf("No such trader. Type NEW to sign up.\n")
 			continue
 		}
-		if player.PassHash == "" {
+		if passHash == "" {
 			term.Printf("That account has no telnet password. Log in on the web portal and use the PASS command to set one.\n")
 			continue
 		}
@@ -184,13 +194,7 @@ func (s *Server) authenticate(term *telnetTerminal) *galwar.Player {
 			if err != nil {
 				return nil
 			}
-			if player.CheckTelnetPassword(pass) {
-				var banned bool
-				var name string
-				u.Do(func() {
-					banned = player.Banned
-					name = player.GetName()
-				})
+			if galwar.CheckPasswordHash(passHash, pass) {
 				if banned {
 					// operational log, not the persisted audit ring, so a
 					// banned client can't churn or evict the in-game audit

@@ -170,9 +170,26 @@ func (u *UniverseType) upgrade() {
 		}
 	}
 
+	// Players saved before the never-moved visibility rule are grandfathered
+	// as moved: veterans parked at Sol must not vanish from the world. The
+	// config marker distinguishes "old data" from "new player who genuinely
+	// hasn't moved" - fresh universes get the marker from SeedDefaultConfig,
+	// so this backfill runs exactly once, on the first load of an old world.
+	// (The SQLite migration backfills the column the same way; this covers
+	// the legacy-YAML path and is a harmless no-op after it.)
+	if u.ConfigString("schema_ever_moved", "") != "1" {
+		for _, p := range u.Players.Players {
+			p.EverMoved = true
+		}
+		u.SetConfig("schema_ever_moved", "1")
+	}
+
 	// universes saved before the device shop existed gain one (and it's
 	// topped up with any newly-added devices)
 	u.ensureAmazingDevices()
+
+	// universes saved before the bank existed gain the Interstel port
+	u.ensureInterstel()
 }
 
 // wire sets the unexported back-references that objects need to resolve

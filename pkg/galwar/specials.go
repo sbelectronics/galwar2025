@@ -198,6 +198,27 @@ func (p *Player) HasAntiCloak() bool {
 	return p.GetQuantity(ANTICLOAK) >= 1
 }
 
+// HasFusionCell reports whether a player can bank unused turns overnight. Binary.
+func (p *Player) HasFusionCell() bool {
+	return p.GetQuantity(FUSIONCELL) >= 1
+}
+
+// HasPlanetScanner reports whether a player can read a planet's defenses before
+// invading. Binary.
+func (p *Player) HasPlanetScanner() bool {
+	return p.GetQuantity(PLANETSCANNER) >= 1
+}
+
+// absorbMine consumes one Mine Deflector to negate a mine detonation, returning
+// true if one was available. Each deflector stops exactly one blast.
+func (u *UniverseType) absorbMine(p *Player) bool {
+	if p.GetQuantity(MINEDEFLECTOR) < 1 {
+		return false
+	}
+	p.AdjustQuantity(MINEDEFLECTOR, -1)
+	return true
+}
+
 // tryEmWarp fires an Emergency Warp if the player carries one: consume it,
 // fling them to a random sector, and return true (they cheated death).
 // Faithful to CheckEmWarp (TWLIB1.PAS:1604-1621).

@@ -47,28 +47,45 @@ func (u *UniverseType) SetConfig(key string, value string) {
 // tunable keys are discoverable in the database.
 func (u *UniverseType) SeedDefaultConfig() {
 	defaults := map[string]string{
-		"numsec":             "2000",
-		"starting_credits":   "35000",
-		"starting_holds":     "25",
-		"starting_fighters":  "200",
-		"turns_per_day":      "250",
-		"planet_max_mines":   "1000",
-		"cost_of_repair":     "250",
-		"max_holds":          "16384",
-		"cost_of_fighter":    "98",
-		"cost_of_hold":       "500",
-		"cost_of_mine":       "15000",
-		"cost_of_genesis":    "10000",
-		"cost_of_plasma":     "56000",
-		"cost_of_pulsar":     "215000",
-		"cost_of_escape":     "27000",
-		"cost_of_cloak":      "18000",
-		"cost_of_anticloak":  "22000",
-		"cost_of_pulsartube": "350000",
-		"max_warps":          "8",
-		"dormant_days":       "5",
-		"expire_days":        "30",
-		"admins":             "",
+		"numsec":                "2000",
+		"starting_credits":      "35000",
+		"starting_holds":        "25",
+		"starting_fighters":     "200",
+		"turns_per_day":         "250",
+		"planet_max_mines":      "1000",
+		"cost_of_repair":        "250",
+		"max_holds":             "16384",
+		"cost_of_fighter":       "98",
+		"cost_of_hold":          "500",
+		"cost_of_mine":          "15000",
+		"cost_of_genesis":       "10000",
+		"cost_of_plasma":        "56000",
+		"cost_of_pulsar":        "215000",
+		"cost_of_escape":        "27000",
+		"cost_of_cloak":         "18000",
+		"cost_of_anticloak":     "22000",
+		"cost_of_pulsartube":    "350000",
+		"cost_of_fusioncell":    "45000",
+		"cost_of_scanner":       "40000",
+		"cost_of_minedeflector": "6000",
+		"max_warps":             "8",
+		"dormant_days":          "5",
+		"expire_days":           "30",
+		"admins":                "",
+		// The Interstel bank: interest percent per nightly maintenance, and the
+		// balance ceiling that earns it (credits above the cap earn nothing -
+		// the anti-money-printer, see bank.go).
+		"bank_interest_pct": "1",
+		"bank_interest_cap": "1000000",
+		// schema marker: this world postdates the never-moved visibility rule,
+		// so upgrade() must not grandfather its players (see universe.go)
+		"schema_ever_moved": "1",
+		// Live tuning for the language filter (gostrict). Comma-separated words:
+		// profanity_extra bans additional words; safelist_extra re-allows names
+		// the dictionaries wrongly flag. Applied at startup, so a sysop can fix a
+		// bad rejection with a sqlite3 edit and a restart, no rebuild.
+		"profanity_extra": "",
+		"safelist_extra":  "",
 		// NPC faction AI. Factions are dormant until the world
 		// is populated and someone worth challenging emerges; they sleep again
 		// if activity falls off. No calendar activation.
@@ -76,9 +93,9 @@ func (u *UniverseType) SeedDefaultConfig() {
 		"cabal_wake_value":          "536000", // ~8x starting kit
 		"cabal_sleep_value":         "268000", // ~4x kit (hysteresis low end)
 		"cabal_scale_pct":           "35",     // Cabal target strength, % of leader value
-		"cabal_max_planet_fighters": "15000",  // cap on a gated Cabal stronghold
+		"cabal_max_planet_fighters": "15000",  // per-stronghold fighter ceiling (Cabal reaches it; Renegades stay below)
 		"ren_min_players":           "2",
-		"ren_target_value":          "134000", // ~2x kit; gentle, population-scaled
+		"ren_target_value":          "134000", // ~2x starting kit; a gentle low bar
 		"faction_quiet_days":        "3",      // no logins this long -> all factions sleep
 		"faction_target_floor":      "200000", // ~3x kit; no faction targets a player below this
 		"cabal_active":              "0",      // faction state (persisted)

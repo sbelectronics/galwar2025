@@ -108,7 +108,8 @@ func TestBattleGroupBreaksGarrison(t *testing.T) {
 func TestBattleGroupKillsPlayerRemotely(t *testing.T) {
 	u, p := bgUniverse(t)
 	victim, _ := u.RegisterPlayer("Victim", "v@example.com", "")
-	victim.MoveTo(60) // sitting at the far end of the route
+	victim.EverMoved = true // an established player (never-moved ships are hidden from recon)
+	victim.MoveTo(60)       // sitting at the far end of the route
 	victim.SetQuantity(FIGHTERS, 100)
 	victim.SetQuantity(EMWARP, 0)
 
@@ -128,6 +129,7 @@ func TestBattleGroupKillsPlayerRemotely(t *testing.T) {
 func TestScoutDoesNotAttackPlayers(t *testing.T) {
 	u, p := bgUniverse(t)
 	bystander, _ := u.RegisterPlayer("Bystander", "b@example.com", "")
+	bystander.EverMoved = true // established: visible to the scout's recon
 	bystander.MoveTo(60)
 	bystander.SetQuantity(FIGHTERS, 100)
 

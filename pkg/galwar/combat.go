@@ -26,8 +26,10 @@ import (
 // large-fleet iteration removes 101 fighters (100 + 1), the coarse step that
 // keeps million-fighter battles from looping forever. The two rolls are
 // independent, so the block and the single may land on the same side or
-// opposite sides. Note the faithful asymmetry: random(100)>50 is a 49/51
-// split favoring the defender.
+// opposite sides. Note the faithful asymmetry: rand.Intn(100)>50 is true for
+// 49 of 100 values, so the attacker takes the loss 49% of the time and the
+// defender 51% - the roll slightly favors the ATTACKER (the defender's
+// fighters deplete faster).
 func attrition(attackers int, defenders int) (attackerLoss int, defenderLoss int) {
 	a, c := 0, 0
 	for a < attackers && c < defenders {
@@ -290,6 +292,10 @@ func (u *UniverseType) InvadePlanet(attacker *Player, commit int) ([]string, err
 	if mines := planet.GetQuantity(MINES); mines > 0 {
 		for i := 0; i < mines; i++ {
 			planet.AdjustQuantity(MINES, -1)
+			if u.absorbMine(attacker) {
+				report = append(report, "A planetary mine detonates - your Mine Deflector absorbs the blast!")
+				continue
+			}
 			f, h := mineBlast(attacker)
 			report = append(report, fmt.Sprintf("A planetary mine detonates! You lose %d fighters and %d holds.", f, h))
 			if attacker.GetQuantity(FIGHTERS) <= 0 {
@@ -352,6 +358,10 @@ func (u *UniverseType) InvadePlanet(attacker *Player, commit int) ([]string, err
 func (u *UniverseType) detonateCarriedMines(killer *Player, victim *Player, now int64, report []string) []string {
 	mines := victim.GetQuantity(MINES)
 	for m := 0; m < mines; m++ {
+		if u.absorbMine(killer) {
+			report = append(report, fmt.Sprintf("One of %s's cargo mines detonates - your Mine Deflector absorbs the blast!", victim.GetName()))
+			continue
+		}
 		f, h := mineBlast(killer)
 		report = append(report, fmt.Sprintf("One of %s's cargo mines detonates! You lose %d fighters and %d holds.", victim.GetName(), f, h))
 		if killer.GetQuantity(FIGHTERS) <= 0 {
@@ -411,7 +421,7 @@ func (u *UniverseType) LaunchBattleGroup(sender *Player, target int, ships int) 
 	report := []string{fmt.Sprintf("Battle group of %d ships away, bound for sector %d!", ships, target)}
 
 	for _, sec := range route[1:] {
-		report = append(report, u.battleSector(sender, sec, &fleet, now)...)
+		report = append(report, u.battleSector(sender, sec, &fleet, now, true)...)
 		if fleet <= 0 {
 			report = append(report, "Your battle group has been destroyed!")
 			break
@@ -427,11 +437,15 @@ func (u *UniverseType) LaunchBattleGroup(sender *Player, target int, ships int) 
 
 // battleSector resolves one sector of a battle group's route: recon of ports
 // and planets, then combat against a hostile garrison's fighters and mines,
-// then enemy players. fleet is reduced in place; the returned lines are nil
-// for an empty transit sector (so long routes don't spam). Mines ignore a
-// fleet under 150, and only a battle-mode (>1 ship) group outside Federation
-// space attacks enemy ships.
-func (u *UniverseType) battleSector(sender *Player, sec int, fleet *int, now int64) []string {
+// then (when engageShips) enemy players. fleet is reduced in place; the
+// returned lines are nil for an empty transit sector (so long routes don't
+// spam). Mines ignore a fleet under 150, and only a battle-mode (>1 ship)
+// group outside Federation space attacks enemy ships.
+//
+// engageShips is false for faction strikes (factions.go), which fight through
+// placed sector defenses and minefields but never attack a mobile ship merely
+// in transit - only the strike's intended target is hit, at the destination.
+func (u *UniverseType) battleSector(sender *Player, sec int, fleet *int, now int64, engageShips bool) []string {
 	var report []string
 	note := func(s string) { report = append(report, s) }
 
@@ -482,11 +496,16 @@ func (u *UniverseType) battleSector(sender *Player, sec int, fleet *int, now int
 	}
 
 	// enemy players: recon always, attack only in battle mode outside fed space
-	battleMode := *fleet > 1 && sec > 10
+	// (and only when ship engagement is enabled - faction strikes recon but
+	// don't attack ships merely in transit)
+	battleMode := engageShips && *fleet > 1 && sec > 10
 	for _, obj := range u.GetObjectsInSector(sec, TYPE_PLAYER) {
 		p, ok := obj.(*Player)
 		if !ok || p == sender || p.IsDead() {
 			continue
+		}
+		if !p.EverMoved {
+			continue // never-moved ships are hidden, from recon too
 		}
 		if u.IsDormant(p, time.Unix(now, 0)) {
 			continue

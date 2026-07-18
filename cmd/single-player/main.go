@@ -73,6 +73,8 @@ func main() {
 
 	u.Start()
 
+	u.Do(u.ApplyModerationExtras)
+
 	persister := galwar.NewPersister(u, store)
 	persister.Start()
 

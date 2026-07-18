@@ -3,6 +3,8 @@ package galwar
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sbelectronics/galwar/pkg/moderation"
 )
 
 type Planet struct {
@@ -124,8 +126,9 @@ func (u *UniverseType) UseGenesisDevice(player *Player, sector int, name string)
 		return err
 	}
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return NewGameError(ErrInvalidName, "You must provide a name for the planet.")
+	if err := moderation.CheckPlanetName(name); err != nil {
+		u.auditRejection(player.GetName(), "planet-name", name, err)
+		return NewGameError(ErrInvalidName, err.Error())
 	}
 	if player.GetQuantity(GENESIS) < 1 {
 		return NewGameError(ErrNotEnoughQuantity, "You don't have a Genesis Device.")

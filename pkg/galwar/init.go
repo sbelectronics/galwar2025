@@ -79,6 +79,8 @@ func (u *UniverseType) Generate(numsec int) {
 
 	u.AddPortToSector(3) // for reproducibility
 
+	u.ensureInterstel() // the bank, at the next free low sector
+
 	for a := 11; a <= 425*numsec/2000; a++ {
 		for {
 			b := randSec(numsec)

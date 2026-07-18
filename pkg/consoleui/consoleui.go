@@ -3,6 +3,7 @@ package consoleui
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,13 @@ func (c *ConsoleUI) printf(format string, args ...any) {
 func (c *ConsoleUI) PrintError(err error) {
 	// the original showed rule violations in light red throughout
 	c.printf("%s%s%s\n", LightRed, ErrText(err), Reset)
+	// an error aborts anything queued behind it: an autopilot course (or any
+	// ';' chain) whose step fails would otherwise keep replaying from the
+	// wrong sector, spraying "You cannot go to that sector!" at the player
+	if c.input != "" {
+		c.input = ""
+		c.printf("(remaining queued commands discarded)\n")
+	}
 }
 
 // GetInput returns the next input token. Whole lines are read (so names may
@@ -92,34 +100,43 @@ func (c *ConsoleUI) PromptBool(prompt string) bool {
 	return false
 }
 
-func (c *ConsoleUI) PromptInt(prompt string) int {
+// PromptInt reads a number. It returns ok=false to abort the current command
+// when the player types "q" (or a bare Enter), or on disconnect - so a stray
+// keystroke never spins the prompt forever and never logs the player out.
+// Non-numeric input gets a hint and re-prompts.
+func (c *ConsoleUI) PromptInt(prompt string) (int, bool) {
 	for !c.Terminated {
 		c.printf("%s", prompt)
-		input := c.GetInput()
-
-		result, err := strconv.Atoi(input)
-		if err == nil {
-			return result
+		input := strings.TrimSpace(c.GetInput())
+		if input == "" || strings.EqualFold(input, "q") {
+			return 0, false
 		}
+		if result, err := strconv.Atoi(input); err == nil {
+			return result, true
+		}
+		c.printf("Please enter a number, or Q to cancel.\n")
 	}
-	return 0
+	return 0, false
 }
 
-func (c *ConsoleUI) PromptIntDefault(prompt string, def int) int {
+// PromptIntDefault is PromptInt with a default: a bare Enter takes the default
+// (ok=true), while "q" aborts (ok=false).
+func (c *ConsoleUI) PromptIntDefault(prompt string, def int) (int, bool) {
 	for !c.Terminated {
 		c.printf("%s", prompt)
-		input := c.GetInput()
-
+		input := strings.TrimSpace(c.GetInput())
 		if input == "" {
-			return def
+			return def, true
 		}
-
-		result, err := strconv.Atoi(input)
-		if err == nil {
-			return result
+		if strings.EqualFold(input, "q") {
+			return 0, false
 		}
+		if result, err := strconv.Atoi(input); err == nil {
+			return result, true
+		}
+		c.printf("Please enter a number, <Enter> for %d, or Q to cancel.\n", def)
 	}
-	return def
+	return def, false
 }
 
 func (c *ConsoleUI) GetWarpStrings(warps []int) []string {
@@ -156,24 +173,67 @@ func objectColor(kind string) string {
 	return LightGray
 }
 
+// fedShipCap bounds the ship list in a Federation-space sector display:
+// sectors 1-10 collect newly-registered and sheltering ships, and the busiest
+// screen in the game (Sol) must not open with a wall of parked starters. The
+// highest-ranked ships are shown; the remainder is summarized as a count.
+// Sectors 11+ are never capped - a fleet pileup out there is combat
+// intelligence the player is entitled to see in full.
+const fedShipCap = 5
+
+func (c *ConsoleUI) printObject(obj galwar.ObjectInterface) {
+	color := objectColor(obj.GetType())
+	extra := obj.GetNameExtra()
+	if extra != "" {
+		c.printf("%s%s: %s, %s%s\n", color, obj.GetType(), obj.GetName(), extra, Reset)
+	} else {
+		c.printf("%s%s: %s%s\n", color, obj.GetType(), obj.GetName(), Reset)
+	}
+}
+
 func (c *ConsoleUI) DisplaySector(secnum int) {
 	now := time.Now()
 	c.Universe.Do(func() {
 		c.printf("%sSector: %d%s\n", LightRed, secnum, Reset)
 
 		objs := c.Universe.GetVisibleObjectsInSector(secnum, "", c.Player, now)
+
+		// in Federation space, cap the ship list at the top fedShipCap by
+		// value; ports, planets, and defense forces are never capped
+		var ships []*galwar.Player
+		for _, obj := range objs {
+			if p, ok := obj.(*galwar.Player); ok && p != c.Player {
+				ships = append(ships, p)
+			}
+		}
+		capped := secnum <= 10 && len(ships) > fedShipCap
+		if capped {
+			vals := map[*galwar.Player]int{}
+			for _, p := range ships {
+				vals[p] = c.Universe.PlayerValue(p)
+			}
+			sort.SliceStable(ships, func(i, j int) bool { return vals[ships[i]] > vals[ships[j]] })
+		}
+
+		shownShipBlock := false
 		for _, obj := range objs {
 			if obj == c.Player {
 				// don't show yourself
 				continue
 			}
-			color := objectColor(obj.GetType())
-			extra := obj.GetNameExtra()
-			if extra != "" {
-				c.printf("%s%s: %s, %s%s\n", color, obj.GetType(), obj.GetName(), extra, Reset)
-			} else {
-				c.printf("%s%s: %s%s\n", color, obj.GetType(), obj.GetName(), Reset)
+			if _, ok := obj.(*galwar.Player); ok && capped {
+				// the capped ship block prints once, where ships appear in the
+				// normal display order
+				if !shownShipBlock {
+					shownShipBlock = true
+					for _, p := range ships[:fedShipCap] {
+						c.printObject(p)
+					}
+					c.printf("%s(%d players not displayed)%s\n", LightCyan, len(ships)-fedShipCap, Reset)
+				}
+				continue
 			}
+			c.printObject(obj)
 		}
 
 		warps := c.Universe.Sectors[secnum].GetWarps()
@@ -206,15 +266,15 @@ func (c *ConsoleUI) ExecuteHelp() {
 		c.printf("%s\n", HelpLine(line))
 	}
 	c.printf("\n")
-	c.printf("%s\n", HelpLine("Implemented: A, B, C, D, F, G, H, I, J, L, M, P, Q, S, W, Y  (plus [PASS], [REPORT], [SYSOP])"))
+	c.printf("%s\n", HelpLine("Implemented: A, B, C, D, F, G, H, I, J, L, M, P, Q, S, W, Y, Z  (plus [PASS], [REPORT], [SYSOP])"))
 }
 
 func (c *ConsoleUI) ExecuteMove() {
 	warps := c.getWarps(c.Player.Sector)
 	c.printf("Warps lead to: %s\n", strings.Join(c.GetWarpStrings(warps), ", "))
 
-	secnum := c.PromptInt("\nMove to what sector? ")
-	if c.Terminated {
+	secnum, ok := c.PromptInt("\nMove to what sector? ")
+	if !ok {
 		return
 	}
 
@@ -258,8 +318,8 @@ func (c *ConsoleUI) ExecutePlasma() {
 	default:
 		return
 	}
-	target := c.PromptInt("Which sector? ")
-	if c.Terminated {
+	target, ok := c.PromptInt("Which sector? ")
+	if !ok {
 		return
 	}
 	var report []string
@@ -286,8 +346,8 @@ func (c *ConsoleUI) ExecutePulsar() {
 		c.printf("You have no pulsar bombs!\n")
 		return
 	}
-	n := c.PromptInt(fmt.Sprintf("You have %d pulsar bombs. Drop how many? ", have))
-	if c.Terminated || n < 1 {
+	n, ok := c.PromptInt(fmt.Sprintf("You have %d pulsar bombs. Drop how many? ", have))
+	if !ok || n < 1 {
 		return
 	}
 	if !c.PromptBool(fmt.Sprintf("Really bomb your own planet with %d pulsar bombs (Y/N)[N] ? ", n)) {
@@ -335,8 +395,8 @@ func (c *ConsoleUI) ExecuteAttack() {
 	for i, t := range targets {
 		c.printf("%s[%d]%s %s\n", Cyan, i+1, Reset, t.name)
 	}
-	choice := c.PromptInt("\nAttack which ship (0=abort) ? ")
-	if c.Terminated || choice < 1 || choice > len(targets) {
+	choice, ok := c.PromptInt("\nAttack which ship (0=abort) ? ")
+	if !ok || choice < 1 || choice > len(targets) {
 		return
 	}
 	target := targets[choice-1]
@@ -349,8 +409,8 @@ func (c *ConsoleUI) ExecuteAttack() {
 	c.Universe.Do(func() {
 		fighters = c.Player.GetQuantity(galwar.FIGHTERS)
 	})
-	commit := c.PromptIntDefault(fmt.Sprintf("How many fighters do you wish to use [%d] ? ", fighters), fighters)
-	if c.Terminated {
+	commit, ok := c.PromptIntDefault(fmt.Sprintf("How many fighters do you wish to use [%d] ? ", fighters), fighters)
+	if !ok {
 		return
 	}
 
@@ -398,14 +458,14 @@ func (c *ConsoleUI) ExecuteLaunchGroup() {
 		c.PrintError(err)
 		return
 	}
-	target := c.PromptInt("\nSend a battle group to what sector? ")
-	if c.Terminated {
+	target, ok := c.PromptInt("\nSend a battle group to what sector? ")
+	if !ok {
 		return
 	}
 	var have int
 	c.Universe.Do(func() { have = c.Player.GetQuantity(galwar.FIGHTERS) })
-	ships := c.PromptInt(fmt.Sprintf("How many ships do you send (1 = scout; you have %d) ? ", have))
-	if c.Terminated || ships < 1 {
+	ships, ok := c.PromptInt(fmt.Sprintf("How many ships do you send (1 = scout; you have %d) ? ", have))
+	if !ok || ships < 1 {
 		return
 	}
 	var report []string
@@ -444,8 +504,8 @@ func (c *ConsoleUI) ExecuteUseDevice() {
 		c.printf("You have no pulsar bombs to launch.\n")
 		return
 	}
-	n := c.PromptInt(fmt.Sprintf("Pulsar Tube: launch how many of your %d pulsar bombs? ", bombs))
-	if c.Terminated || n < 1 {
+	n, ok := c.PromptInt(fmt.Sprintf("Pulsar Tube: launch how many of your %d pulsar bombs? ", bombs))
+	if !ok || n < 1 {
 		return
 	}
 	var report []string
@@ -483,8 +543,8 @@ func (c *ConsoleUI) ExecuteScan() {
 }
 
 func (c *ConsoleUI) ExecuteAutopilot() {
-	sec := c.PromptInt("\nWhat sector do you wish to go to ? ")
-	if c.Terminated {
+	sec, ok := c.PromptInt("\nWhat sector do you wish to go to ? ")
+	if !ok {
 		return
 	}
 
@@ -571,8 +631,8 @@ func (c *ConsoleUI) DockServicePort(port *galwar.Port) {
 			canAfford = int(math.Floor(float64(c.Player.GetMoney()) / commodity.EffectiveSellPrice()))
 		})
 
-		qty := c.PromptInt(fmt.Sprintf("\nYou can afford %d %s. How many do you want? ", canAfford, commodity.Name))
-		if qty <= 0 {
+		qty, ok := c.PromptInt(fmt.Sprintf("\nYou can afford %d %s. How many do you want? ", canAfford, commodity.Name))
+		if !ok || qty <= 0 {
 			continue
 		}
 
@@ -606,6 +666,10 @@ func (c *ConsoleUI) DockPort() {
 		return
 	}
 
+	if port.Goods == galwar.Interstel {
+		c.DockBank()
+		return
+	}
 	if port.Goods == galwar.Sol || port.Goods == galwar.AmazingDevices {
 		c.DockServicePort(port)
 		return
@@ -651,9 +715,12 @@ func (c *ConsoleUI) DockPort() {
 			})
 			buyAllow := min(inHolds, portWants)
 			c.printf("\nWe are buying up to %d of %s. You have %d in your holds.\n", portWants, item.name, inHolds)
-			input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to sell [%d] ? ", item.name, buyAllow), buyAllow)
+			input, ok := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to sell [%d] ? ", item.name, buyAllow), buyAllow)
 			if c.Terminated {
 				return
+			}
+			if !ok {
+				break // Q: skip this good, move to the next
 			}
 			err := c.Universe.DoErr(func() error {
 				return c.Universe.TradeSell(item.name, port, c.Player, input)
@@ -681,9 +748,12 @@ func (c *ConsoleUI) DockPort() {
 				sellAllow = min(c.Player.GetFreeHolds(), portHas, int(math.Floor(float64(c.Player.GetMoney())/cm.EffectiveSellPrice())))
 			})
 			c.printf("\nWe are selling up to %d of %s. You have %d in your holds.\n", portHas, item.name, inHolds)
-			input := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", item.name, sellAllow), sellAllow)
+			input, ok := c.PromptIntDefault(fmt.Sprintf("How many holds of %s do you want to buy [%d] ? ", item.name, sellAllow), sellAllow)
 			if c.Terminated {
 				return
+			}
+			if !ok {
+				break // Q: skip this good, move to the next
 			}
 			err := c.Universe.DoErr(func() error {
 				return c.Universe.TradeBuy(item.name, port, c.Player, input)
@@ -696,13 +766,82 @@ func (c *ConsoleUI) DockPort() {
 	}
 }
 
+// DockBank is the Interstel port's menu: deposit, withdraw, and the account
+// statement. The account survives ship destruction (bank.go), which is the
+// entire sales pitch, so the teller says so.
+func (c *ConsoleUI) DockBank() {
+	first := true
+	for !c.Terminated {
+		if c.isDead() {
+			return
+		}
+		var balance, money, pct, capAmt int
+		c.Universe.Do(func() {
+			balance = c.Player.BankBalance
+			money = c.Player.GetMoney()
+			pct = c.Universe.ConfigInt("bank_interest_pct", 1)
+			capAmt = c.Universe.ConfigInt("bank_interest_cap", 1000000)
+		})
+		if first {
+			first = false
+			c.printf("%sInterstel Galactic Banking: %s%s\n", Yellow, time.Now().Format("2006-01-02 15:04:05"), Reset)
+			c.printf("\n%sDeposits earn %d%% interest nightly on the first %d credits,\nand your account survives the destruction of your ship.%s\n", LightCyan, pct, capAmt, Reset)
+		}
+		c.printf("\n%s  Account balance: %s%d\n", Cyan, White, balance)
+		c.printf("%s   Credits aboard: %s%d%s\n", Cyan, White, money, Reset)
+
+		input := strings.ToLower(c.PromptString("\n(D)eposit, (W)ithdraw, or (Q)uit ? "))
+		switch input {
+		case "d":
+			amount, ok := c.PromptIntDefault(fmt.Sprintf("Deposit how many credits [%d] ? ", money), money)
+			if !ok || amount < 1 {
+				continue
+			}
+			if err := c.Universe.DoErr(func() error {
+				return c.Universe.BankDeposit(c.Player, amount)
+			}); err != nil {
+				c.PrintError(err)
+			}
+		case "w":
+			amount, ok := c.PromptIntDefault(fmt.Sprintf("Withdraw how many credits [%d] ? ", balance), balance)
+			if !ok || amount < 1 {
+				continue
+			}
+			if err := c.Universe.DoErr(func() error {
+				return c.Universe.BankWithdraw(c.Player, amount)
+			}); err != nil {
+				c.PrintError(err)
+			}
+		case "q", "":
+			return
+		}
+	}
+}
+
 func (c *ConsoleUI) ExecuteInfo() {
 	// info screen: cyan labels, white values (TWARS.PAS:148-198)
 	c.Universe.Do(func() {
+		// right-align every label to the longest one in play, so a
+		// late-catalog device ("Anti-Cloaking Device") can't overflow the column
+		width := len("Bank Balance")
+		for _, cm := range c.Player.Inventory {
+			if !cm.IsCargo() && len(cm.Name) > width {
+				width = len(cm.Name)
+			}
+		}
+		row := func(label string, val any) {
+			c.printf("%s%*s: %s%v\n", Cyan, width, label, White, val)
+		}
 		c.printf("\n")
-		c.printf("%s           Name: %s%s\n", Cyan, White, c.Player.GetName())
-		c.printf("%s        Credits: %s%d\n", Cyan, White, c.Player.GetMoney())
-		c.printf("%s          Cargo:%s", Cyan, White)
+		row("Name", c.Player.GetName())
+		row("Credits", c.Player.GetMoney())
+		if c.Player.BankBalance > 0 {
+			row("Bank Balance", c.Player.BankBalance)
+		}
+		if c.Player.BankedTurns > 0 {
+			row("Banked Turns", c.Player.BankedTurns)
+		}
+		c.printf("%s%*s:%s", Cyan, width, "Cargo", White)
 		for _, cm := range c.Player.Inventory {
 			if cm.IsCargo() {
 				c.printf(" %s: %d", cm.GetShortName(), cm.Quantity)
@@ -711,7 +850,7 @@ func (c *ConsoleUI) ExecuteInfo() {
 		c.printf("\n")
 		for _, cm := range c.Player.Inventory {
 			if !cm.IsCargo() {
-				c.printf("%s%15s: %s%d\n", Cyan, cm.Name, White, cm.Quantity)
+				row(cm.Name, cm.Quantity)
 			}
 		}
 		c.printf("%s", Reset)
@@ -736,8 +875,8 @@ func (c *ConsoleUI) ExecuteBattleGroup(kind string) {
 		return
 	}
 
-	amount := c.PromptInt(fmt.Sprintf("You have %d total %s. How many do you want to defend this sector? ", total, kind))
-	if c.Terminated {
+	amount, ok := c.PromptInt(fmt.Sprintf("You have %d total %s. How many do you want to defend this sector? ", total, kind))
+	if !ok {
 		return
 	}
 
@@ -821,8 +960,8 @@ func (c *ConsoleUI) ExecutePlanetTakeCargo(commodityName string) {
 		return
 	}
 
-	amount := c.PromptIntDefault(fmt.Sprintf("Take how much %s [%d] ? ", commodityName, wanted), wanted)
-	if c.Terminated {
+	amount, ok := c.PromptIntDefault(fmt.Sprintf("Take how much %s [%d] ? ", commodityName, wanted), wanted)
+	if !ok {
 		return
 	}
 
@@ -863,8 +1002,8 @@ func (c *ConsoleUI) ExecutePlanetTransfer(commodityName string) {
 		return
 	}
 
-	amount := c.PromptIntDefault(fmt.Sprintf("You have %d %s available, how many to leave on planet? ", total, commodityName), 0)
-	if c.Terminated {
+	amount, ok := c.PromptIntDefault(fmt.Sprintf("You have %d %s available, how many to leave on planet? ", total, commodityName), 0)
+	if !ok {
 		return
 	}
 
@@ -881,21 +1020,30 @@ func (c *ConsoleUI) ExecutePlanetTransfer(commodityName string) {
 func (c *ConsoleUI) ExecuteInvade() {
 	var have int
 	var planetName, ownerName string
+	var scanned bool
+	var garrison, mines int
 	c.Universe.Do(func() {
 		have = c.Player.GetQuantity(galwar.FIGHTERS)
+		scanned = c.Player.HasPlanetScanner()
 		for _, obj := range c.Universe.GetObjectsInSector(c.Player.Sector, galwar.TYPE_PLANET) {
 			if pl, ok := obj.(*galwar.Planet); ok {
 				planetName = pl.GetName()
 				ownerName = pl.GetOwnerPlayer().GetName()
+				garrison = pl.GetQuantity(galwar.FIGHTERS)
+				mines = pl.GetQuantity(galwar.MINES)
 			}
 		}
 	})
 	c.printf("%s%s is held by %s.%s\n", LightRed, planetName, ownerName, Reset)
+	// a Planetary Scanner reveals the defenses before you commit
+	if scanned {
+		c.printf("%sPlanetary Scanner: %d defending fighters, %d planetary mines.%s\n", LightCyan, garrison, mines, Reset)
+	}
 	if !c.PromptBool("Invade it (Y/N)[N] ? ") {
 		return
 	}
-	commit := c.PromptIntDefault(fmt.Sprintf("Commit how many of your %d fighters [%d] ? ", have, have), have)
-	if c.Terminated {
+	commit, ok := c.PromptIntDefault(fmt.Sprintf("Commit how many of your %d fighters [%d] ? ", have, have), have)
+	if !ok {
 		return
 	}
 	var report []string
@@ -987,21 +1135,178 @@ func (c *ConsoleUI) ExecuteLand() {
 }
 
 // ExecuteComputer is the original's C command: an on-board computer with
-// sub-reports. Currently offers player rankings.
+// read-only sub-reports (COMPUTER.PAS's computer_menu). A damaged ship computer
+// disables it, as in the original.
 func (c *ConsoleUI) ExecuteComputer() {
+	if err := c.Universe.DoErr(func() error {
+		return c.Universe.CheckSystem(c.Player, galwar.SysComputer)
+	}); err != nil {
+		c.PrintError(err)
+		return
+	}
 	for !c.Terminated {
 		cmd := strings.ToLower(c.PromptString("\n" + Yellow + "Computer (?=Help) ? " + Reset))
 		switch cmd {
 		case "l":
 			c.ShowRankings()
+		case "e":
+			c.ShowForces()
+		case "p":
+			c.ShowPlanetaryStatus()
+		case "f":
+			c.FindNearestPort()
+		case "u":
+			c.ShowUniverseStats()
+		case "w":
+			c.ShowRecentNews()
 		case "q", "":
 			return
 		case "?":
-			c.printf("%s[L]%s Rank the greatest warlords\n", Cyan, Reset)
+			c.printf("%s[L]%s Rank the greatest warlords     %s[E]%s Find your forces\n", Cyan, Reset, Cyan, Reset)
+			c.printf("%s[P]%s Your planetary status          %s[F]%s Find the nearest port\n", Cyan, Reset, Cyan, Reset)
+			c.printf("%s[U]%s Universe specifics             %s[W]%s What happened while you were out\n", Cyan, Reset, Cyan, Reset)
 			c.printf("%s[Q]%s Quit the computer\n", Cyan, Reset)
 		}
 	}
 }
+
+// ShowForces is the [E] report: every planet and defense force the player owns.
+func (c *ConsoleUI) ShowForces() {
+	c.Universe.Do(func() {
+		forces := c.Universe.PlayerForces(c.Player)
+		if len(forces) == 0 {
+			c.printf("%sYou have no planets or sector forces deployed.%s\n", LightCyan, Reset)
+			return
+		}
+		c.printf("\n%s  Asset          Sector   Fighters      Mines  Name\n", Green)
+		c.printf("  ============   ======   ========   ========  ====================%s\n", White)
+		for _, f := range forces {
+			c.printf("  %-12s   %6d   %8d   %8d  %s\n", f.Kind, f.Sector, f.Fighters, f.Mines, f.Name)
+		}
+		c.printf("%s", Reset)
+	})
+}
+
+// ShowPlanetaryStatus is the [P] report: production and stock for owned
+// planets, without flying to each one.
+func (c *ConsoleUI) ShowPlanetaryStatus() {
+	c.Universe.Do(func() {
+		planets := c.Universe.OwnedPlanets(c.Player)
+		if len(planets) == 0 {
+			c.printf("%sYou don't own any planets.%s\n", LightCyan, Reset)
+			return
+		}
+		for _, pl := range planets {
+			c.printf("\n%s%s (sector %d):%s\n", Yellow, pl.GetName(), pl.Sector, Reset)
+			c.printf("%s  Item        Prod     # units%s\n", Green, White)
+			for _, cm := range pl.Inventory {
+				c.printf("  %-10s %6d %10d\n", cm.Name, cm.Prod, cm.Quantity)
+			}
+		}
+		c.printf("%s", Reset)
+	})
+}
+
+// FindNearestPort is the [F] report: the closest port, optionally one that
+// buys or sells a chosen commodity, with the shortest-path course to it.
+func (c *ConsoleUI) FindNearestPort() {
+	kind := strings.ToLower(c.PromptString("\nNearest (A)ny port, port (B)uying, or port (S)elling a good [A] ? "))
+	var want func(*galwar.Port) bool
+	var label string
+	if kind == "b" || kind == "s" {
+		good := c.chooseCommodity()
+		if good == "" {
+			return
+		}
+		if kind == "b" {
+			want, label = galwar.PortBuys(good), "buying "+good
+		} else {
+			want, label = galwar.PortSells(good), "selling "+good
+		}
+	} else {
+		label = "any port"
+	}
+
+	var sector, distance int
+	var name string
+	var found bool
+	var path []int
+	c.Universe.Do(func() {
+		sector, distance, name, found = c.Universe.NearestPort(c.Player.Sector, want)
+		if found {
+			path = c.Universe.ShortestPathTo(c.Player.Sector, sector)
+		}
+	})
+	if !found {
+		c.printf("%sNo reachable port %s was found.%s\n", LightCyan, label, Reset)
+		return
+	}
+	if distance == 0 {
+		c.printf("%sYou are already at %s (sector %d).%s\n", LightGreen, name, sector, Reset)
+		return
+	}
+	c.printf("%sNearest port %s: %s in sector %d (%d jumps).%s\n", LightCyan, label, name, sector, distance, Reset)
+	pathStrings := []string{}
+	for _, s := range path {
+		pathStrings = append(pathStrings, fmt.Sprintf("%d", s))
+	}
+	c.printf("Course: %s\n", strings.Join(pathStrings, ", "))
+}
+
+// chooseCommodity prompts for one of the three trade goods.
+func (c *ConsoleUI) chooseCommodity() string {
+	switch strings.ToLower(c.PromptString("Which good - (O)re, or(G)anics, (E)quipment ? ")) {
+	case "o":
+		return galwar.ORE
+	case "g":
+		return galwar.ORGANICS
+	case "e":
+		return galwar.EQUIPMENT
+	}
+	return ""
+}
+
+// ShowUniverseStats is the [U] report: the state of the galaxy.
+func (c *ConsoleUI) ShowUniverseStats() {
+	now := time.Now()
+	c.Universe.Do(func() {
+		s := c.Universe.Stats(now)
+		c.printf("\n%sUniverse Specifics:%s\n", Yellow, Reset)
+		c.printf("%s        Sectors: %s%d\n", Cyan, White, s.Sectors)
+		c.printf("%s          Ports: %s%d\n", Cyan, White, s.Ports)
+		c.printf("%s        Planets: %s%d\n", Cyan, White, s.Planets)
+		c.printf("%s Active traders: %s%d\n", Cyan, White, s.ActiveTraders)
+		c.printf("%s  Turns per day: %s%d\n", Cyan, White, s.TurnsPerDay)
+		turnPrice := 0
+		if def := galwar.FindCommodityDef(galwar.TURNS); def != nil {
+			turnPrice = int(def.SellPrice)
+		}
+		c.printf("%s\n%sSol prices:%s cargo hold %d, fighter %d, turn %d\n", Reset, Cyan, White,
+			c.Universe.ConfigInt("cost_of_hold", 500),
+			c.Universe.ConfigInt("cost_of_fighter", 98),
+			turnPrice)
+		c.printf("%s", Reset)
+	})
+}
+
+// ShowRecentNews is the [W] report: re-show recent news the player may have
+// scrolled past.
+func (c *ConsoleUI) ShowRecentNews() {
+	var news []string
+	c.Universe.Do(func() {
+		news = c.Universe.RecentNews(c.Player.Id, 20)
+	})
+	if len(news) == 0 {
+		c.printf("%sNothing has happened to you recently.%s\n", LightCyan, Reset)
+		return
+	}
+	PrintNews(c.Term, "Recent transmissions:", news)
+}
+
+// rankingsCap bounds the leaderboard display; the rest of the field is
+// summarized as a count so the list can't grow into hundreds of rows of
+// dormant players. The viewer's own row is always shown, even below the cap.
+const rankingsCap = 20
 
 func (c *ConsoleUI) ShowRankings() {
 	now := time.Now()
@@ -1009,15 +1314,29 @@ func (c *ConsoleUI) ShowRankings() {
 		ranks := c.Universe.RankedPlayers(now)
 		c.printf("\n%s   Rank  Trader                          Net Worth\n", Green)
 		c.printf("   ====  ==============================  ============%s\n", White)
-		for i, r := range ranks {
-			if i >= 20 {
-				break
-			}
+		row := func(rank int, r galwar.Ranking) {
 			tag := ""
 			if r.Dormant {
 				tag = " (dormant)"
 			}
-			c.printf("   %4d  %-30s %12d%s\n", i+1, r.Name, r.Value, tag)
+			c.printf("   %4d  %-30s %12d%s\n", rank, r.Name, r.Value, tag)
+		}
+		shown := len(ranks)
+		if shown > rankingsCap {
+			shown = rankingsCap
+		}
+		for i := 0; i < shown; i++ {
+			row(i+1, ranks[i])
+		}
+		if len(ranks) > rankingsCap {
+			c.printf("%s   ( %d more not displayed )%s\n", Cyan, len(ranks)-rankingsCap, White)
+			// the viewer always sees where they stand
+			for i := rankingsCap; i < len(ranks); i++ {
+				if ranks[i].Id == c.Player.Id {
+					row(i+1, ranks[i])
+					break
+				}
+			}
 		}
 		c.printf("%s", Reset)
 	})
@@ -1188,6 +1507,8 @@ func (c *ConsoleUI) ExecuteCommand() {
 		c.ExecutePlasma()
 	case "y":
 		c.ExecuteAutopilot()
+	case "z":
+		c.ExecuteGuide()
 	}
 }
 

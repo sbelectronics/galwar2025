@@ -83,8 +83,18 @@ func (u *UniverseType) RunDailyMaintenance(now time.Time) bool {
 
 	// update_users (MAINT1.PAS:230-249): turns reset to the daily allowance,
 	// not accumulated - turns bought yesterday don't survive the night.
+	// Exception: a Fusion Cell (M15) banks the day's unused turns, up to a
+	// full day's allowance, to be drawn once tomorrow's allowance runs out.
 	turnsPerDay := u.ConfigInt("turns_per_day", 250)
 	for _, p := range u.Players.Players {
+		if p.HasFusionCell() {
+			p.BankedTurns += p.GetQuantity(TURNS)
+			if p.BankedTurns > turnsPerDay {
+				p.BankedTurns = turnsPerDay
+			}
+		} else {
+			p.BankedTurns = 0 // the cell is the reserve; without it there is none
+		}
 		p.SetQuantity(TURNS, turnsPerDay)
 	}
 
@@ -114,6 +124,10 @@ func (u *UniverseType) RunDailyMaintenance(now time.Time) bool {
 			expired++
 		}
 	}
+
+	// Interstel pays nightly interest on bank accounts (bank.go); dormant
+	// players' accounts coast
+	u.creditBankInterest(now)
 
 	// NPC faction AI: wake/sleep the factions by how utilized the world is,
 	// then let the active ones take their turn

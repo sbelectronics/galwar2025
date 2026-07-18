@@ -1,6 +1,7 @@
 package galwar
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -260,5 +261,44 @@ func TestReportsAndForceRename(t *testing.T) {
 	// renaming resolves the report against the old handle
 	if len(u.OpenReports()) != 0 {
 		t.Errorf("report not resolved after force-rename")
+	}
+}
+
+// TestModerationRejectionsAudited: a rejected handle or planet name leaves an
+// audit entry naming the input and the rule that fired - the feedback loop the
+// sysop tunes profanity_extra/safelist_extra from. The input is stored
+// %q-escaped, so an injection attempt can't reach the sysop's screen through
+// its own audit record.
+func TestModerationRejectionsAudited(t *testing.T) {
+	u := m6Universe(t)
+
+	if _, err := u.RegisterPlayer("c u n t", "who@example.com", ""); err == nil {
+		t.Fatalf("bad handle accepted")
+	}
+	p, _ := u.RegisterPlayer("Genesis Guy", "gg@example.com", "")
+	p.MoveTo(20)
+	if err := u.UseGenesisDevice(p, 20, "esc\x1b[31mape"); err == nil {
+		t.Fatalf("bad planet name accepted")
+	}
+
+	for action, frag := range map[string]string{
+		"reject-handle":      "c u n t",
+		"reject-planet-name": "esc",
+	} {
+		found := false
+		for _, a := range u.Audit {
+			if a.Action == action && strings.Contains(a.Detail, frag) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no %s audit entry recorded", action)
+		}
+	}
+	// escaped means escaped: no raw control byte may survive into the trail
+	for _, a := range u.Audit {
+		if strings.ContainsRune(a.Detail, 0x1b) {
+			t.Errorf("audit detail contains a raw escape byte: %q", a.Detail)
+		}
 	}
 }

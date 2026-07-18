@@ -29,7 +29,7 @@ func boolToInt(b bool) int {
 // scale and flush rate. If it ever becomes a bottleneck, the upgrade path is
 // per-entity dirty tracking, not a schema change.
 
-const schemaVersion = "5"
+const schemaVersion = "7"
 
 // migration from v1 (M2): commodities gained a restock clock
 const schemaV1toV2 = `ALTER TABLE commodities ADD COLUMN last_restock INTEGER NOT NULL DEFAULT 0;`
@@ -56,6 +56,20 @@ ALTER TABLE players ADD COLUMN banned INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE players ADD COLUMN expired INTEGER NOT NULL DEFAULT 0;
 `
 
+// migration from v5 (M12/M13): the never-moved visibility flag and the
+// Interstel bank account. ever_moved backfills TRUE - every pre-existing
+// player is grandfathered as visible; hiding the never-moved is a rule for
+// new registrations, not for veterans parked at Sol.
+const schemaV5toV6 = `
+ALTER TABLE players ADD COLUMN ever_moved INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE players ADD COLUMN bank_balance INTEGER NOT NULL DEFAULT 0;
+`
+
+// migration from v6 (M15): the Fusion Cell's banked-turn reserve
+const schemaV6toV7 = `
+ALTER TABLE players ADD COLUMN banked_turns INTEGER NOT NULL DEFAULT 0;
+`
+
 const storeSchema = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -78,7 +92,12 @@ CREATE TABLE IF NOT EXISTS players (
 	died_at    INTEGER NOT NULL DEFAULT 0,
 	systems    TEXT NOT NULL DEFAULT '',
 	banned     INTEGER NOT NULL DEFAULT 0,
-	expired    INTEGER NOT NULL DEFAULT 0
+	expired    INTEGER NOT NULL DEFAULT 0,
+	-- DEFAULT 0 here (fresh worlds insert real values); the v5->v6 ALTER
+	-- deliberately differs with DEFAULT 1 to grandfather existing players
+	ever_moved   INTEGER NOT NULL DEFAULT 0,
+	bank_balance INTEGER NOT NULL DEFAULT 0,
+	banked_turns INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS news (
 	player_id TEXT NOT NULL,
@@ -191,6 +210,8 @@ func OpenStore(path string) (*Store, error) {
 		"2": {schemaV2toV3, "3"},
 		"3": {schemaV3toV4, "4"},
 		"4": {schemaV4toV5, "5"},
+		"5": {schemaV5toV6, "6"},
+		"6": {schemaV6toV7, "7"},
 	}
 	for v != schemaVersion {
 		mig, ok := migrations[v]
@@ -260,12 +281,12 @@ func (s *Store) SaveUniverse(snap *Snapshot) error {
 		}
 	}
 
-	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems, banned, expired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	insPlayer, err := tx.Prepare(`INSERT INTO players (id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems, banned, expired, ever_moved, bank_balance, banked_turns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	for _, p := range snap.players {
-		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money, p.googleSub, p.passHash, p.lastSeen, p.timesDied, p.diedAt, p.systems, boolToInt(p.banned), boolToInt(p.expired)); err != nil {
+		if _, err := insPlayer.Exec(p.id, p.email, p.name, p.sector, p.money, p.googleSub, p.passHash, p.lastSeen, p.timesDied, p.diedAt, p.systems, boolToInt(p.banned), boolToInt(p.expired), boolToInt(p.everMoved), p.bankBalance, p.bankedTurns); err != nil {
 			return err
 		}
 	}
@@ -432,15 +453,15 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 	}
 
 	// players
-	rows, err = s.db.Query(`SELECT id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems, banned, expired FROM players ORDER BY rowid`)
+	rows, err = s.db.Query(`SELECT id, email, name, sector, money, google_sub, pass_hash, last_seen, times_died, died_at, systems, banned, expired, ever_moved, bank_balance, banked_turns FROM players ORDER BY rowid`)
 	if err != nil {
 		return false, err
 	}
 	for rows.Next() {
 		p := &Player{}
 		var id, systems string
-		var banned, expired int
-		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money, &p.GoogleSub, &p.PassHash, &p.LastSeen, &p.TimesDied, &p.DiedAt, &systems, &banned, &expired); err != nil {
+		var banned, expired, everMoved int
+		if err := rows.Scan(&id, &p.Email, &p.Name, &p.Sector, &p.Money, &p.GoogleSub, &p.PassHash, &p.LastSeen, &p.TimesDied, &p.DiedAt, &systems, &banned, &expired, &everMoved, &p.BankBalance, &p.BankedTurns); err != nil {
 			rows.Close()
 			return false, err
 		}
@@ -449,6 +470,7 @@ func (s *Store) LoadUniverse(u *UniverseType) (bool, error) {
 		p.Systems = systemsFromString(systems)
 		p.Banned = banned != 0
 		p.Expired = expired != 0
+		p.EverMoved = everMoved != 0
 		u.Players.Players = append(u.Players.Players, p)
 	}
 	if err := rows.Close(); err != nil {

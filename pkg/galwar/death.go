@@ -92,6 +92,7 @@ func (u *UniverseType) resetToStartingShip(p *Player, mult int) {
 		p.Inventory = append(p.Inventory, &Commodity{Name: tg.Name, Quantity: quantity})
 	}
 	p.Systems = make([]int, NumSystems)
+	p.BankedTurns = 0 // the Fusion Cell that held the reserve is gone with the ship
 }
 
 // KillPlayer marks a player dead and forfeits their standing assets. The dead
@@ -118,6 +119,7 @@ func (u *UniverseType) ExpirePlayer(p *Player, now int64) {
 	}
 	u.forfeitAssets(p, now)
 	u.resetToStartingShip(p, 100)
+	p.BankBalance = 0 // the account survives death, but not repossession
 	p.MoveTo(1)
 	p.Expired = true
 	u.AddNews(p.Id, now, "You were absent so long the Traders Guild repossessed your holdings and issued you a fresh starter ship.")
