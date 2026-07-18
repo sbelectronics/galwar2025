@@ -69,6 +69,20 @@ func (u *UniverseType) SeedDefaultConfig() {
 		"dormant_days":       "5",
 		"expire_days":        "30",
 		"admins":             "",
+		// NPC faction AI. Factions are dormant until the world
+		// is populated and someone worth challenging emerges; they sleep again
+		// if activity falls off. No calendar activation.
+		"cabal_min_players":         "3",
+		"cabal_wake_value":          "536000", // ~8x starting kit
+		"cabal_sleep_value":         "268000", // ~4x kit (hysteresis low end)
+		"cabal_scale_pct":           "35",     // Cabal target strength, % of leader value
+		"cabal_max_planet_fighters": "15000",  // cap on a gated Cabal stronghold
+		"ren_min_players":           "2",
+		"ren_target_value":          "134000", // ~2x kit; gentle, population-scaled
+		"faction_quiet_days":        "3",      // no logins this long -> all factions sleep
+		"faction_target_floor":      "200000", // ~3x kit; no faction targets a player below this
+		"cabal_active":              "0",      // faction state (persisted)
+		"ren_active":                "0",
 	}
 	if u.Config == nil {
 		u.Config = map[string]string{}
