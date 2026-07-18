@@ -11,6 +11,7 @@ const (
 	TradingPort    PortType = iota // regular ore/org/eqp trading port
 	Sol                            // Federation Operations: ship gear, turns, plasma/pulsar/emwarp
 	AmazingDevices                 // the device shop: cloak, anti-cloak, pulsar tube
+	Interstel                      // the bank: deposits, withdrawals, nightly interest (bank.go)
 )
 
 type Port struct {
@@ -40,6 +41,8 @@ func (p *Port) GetNameExtra() string {
 		return "Federation Operations"
 	case AmazingDevices:
 		return "Amazing Devices"
+	case Interstel:
+		return "Interstel Banking"
 	}
 
 	sellNames := []string{}
@@ -109,6 +112,27 @@ func (u *UniverseType) ensureAmazingDevices() {
 		cm.Sell = true
 		port.Inventory = append(port.Inventory, &cm)
 	}
+}
+
+// ensureInterstel makes sure the universe has the Interstel bank port (the
+// descendant of the original's sector-2 Interstel, INTERSTE.PAS). Idempotent,
+// like ensureAmazingDevices: creates the port at a free low sector if absent.
+// The bank carries no inventory - its service is the account (bank.go) - so
+// there is nothing to top up. Safe to call from Generate and from upgrade.
+func (u *UniverseType) ensureInterstel() {
+	for _, p := range u.Ports.Ports {
+		if p.Goods == Interstel {
+			return
+		}
+	}
+	sector := u.freePortSector()
+	if sector == 0 {
+		return // universe is wall-to-wall ports; nothing we can do
+	}
+	u.Ports.Ports = append(u.Ports.Ports, &Port{
+		Goods:      Interstel,
+		ObjectBase: ObjectBase{Name: "Interstel", Sector: sector},
+	})
 }
 
 // freePortSector returns a portless sector, preferring the low (Federation)

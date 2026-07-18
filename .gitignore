@@ -1,5 +1,13 @@
 build/
 *~
+*.exe
 galwar.db
 galwar.db-wal
 galwar.db-shm
+
+# Local deploy script — keeps the real host/user out of the public repo.
+Deploy/push-deploy.sh
+
+# Internal planning / review docs (contain infra + identity details).
+PLAN-*.md
+FABLE-REVIEW.md

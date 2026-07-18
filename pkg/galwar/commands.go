@@ -15,6 +15,12 @@ import (
 // a turn heals one point on every damaged ship system.
 func (u *UniverseType) spendTurn(p *Player) error {
 	if p.GetQuantity(TURNS) < 1 {
+		// daily allowance spent: draw on the Fusion Cell reserve if any
+		if p.BankedTurns > 0 {
+			p.BankedTurns--
+			p.HealSystems()
+			return nil
+		}
 		return NewGameError(ErrNoTurns, "You don't have any turns left! Come back tomorrow.")
 	}
 	p.AdjustQuantity(TURNS, -1)
@@ -58,6 +64,10 @@ func (u *UniverseType) MovePlayer(p *Player, dest int) ([]string, error) {
 	if err := u.spendTurn(p); err != nil {
 		return nil, err
 	}
+	// The move is committed (turn spent): from their first move on, a player is
+	// part of the visible world. Never-moved ships - drive-by registrations that
+	// never left dock - stay hidden from other players (see GetVisibleObjectsInSector).
+	p.EverMoved = true
 
 	now := time.Now().Unix()
 	var report []string
@@ -107,6 +117,10 @@ func (u *UniverseType) MovePlayer(p *Player, dest int) ([]string, error) {
 		for hostile.GetQuantity(MINES) > 0 {
 			hostile.AdjustQuantity(MINES, -1)
 			blasted++
+			if u.absorbMine(p) {
+				report = append(report, fmt.Sprintf("A mine belonging to %s detonates - your Mine Deflector absorbs the blast!", owner.GetName()))
+				continue
+			}
 			f, h := mineBlast(p)
 			report = append(report, fmt.Sprintf("A mine belonging to %s detonates! You lose %d fighters and %d holds.", owner.GetName(), f, h))
 			if p.GetQuantity(FIGHTERS) <= 0 {

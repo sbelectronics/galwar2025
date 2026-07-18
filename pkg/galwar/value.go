@@ -16,6 +16,7 @@ func (u *UniverseType) PlayerValue(p *Player) int {
 	costGenesis := u.ConfigInt("cost_of_genesis", 10000)
 
 	value := p.Money
+	value += p.BankBalance // the bank is no shelter from rankings or factions
 	value += p.GetQuantity(FIGHTERS) * costFighter
 	value += p.GetQuantity(HOLDS) * costHold
 	value += p.GetQuantity(MINES) * costMine
@@ -26,6 +27,9 @@ func (u *UniverseType) PlayerValue(p *Player) int {
 	value += p.GetQuantity(CLOAK) * u.ConfigInt("cost_of_cloak", 18000)
 	value += p.GetQuantity(ANTICLOAK) * u.ConfigInt("cost_of_anticloak", 22000)
 	value += p.GetQuantity(PULSARTUBE) * u.ConfigInt("cost_of_pulsartube", 350000)
+	value += p.GetQuantity(FUSIONCELL) * u.ConfigInt("cost_of_fusioncell", 45000)
+	value += p.GetQuantity(PLANETSCANNER) * u.ConfigInt("cost_of_scanner", 40000)
+	value += p.GetQuantity(MINEDEFLECTOR) * u.ConfigInt("cost_of_minedeflector", 6000)
 	value += cargoValue(p)
 
 	for _, bg := range u.Battlegroups.Battlegroups {
@@ -59,8 +63,11 @@ func cargoValue(inv InventoryInterface) int {
 	return total
 }
 
-// Ranking is one row of the leaderboard.
+// Ranking is one row of the leaderboard. Id lets a front-end find the
+// viewer's own row (the rankings display always shows the current player,
+// even beyond its cap).
 type Ranking struct {
+	Id      PlayerId
 	Name    string
 	Value   int
 	Dormant bool
@@ -75,6 +82,7 @@ func (u *UniverseType) RankedPlayers(now time.Time) []Ranking {
 			continue
 		}
 		out = append(out, Ranking{
+			Id:      p.Id,
 			Name:    p.GetName(),
 			Value:   u.PlayerValue(p),
 			Dormant: u.IsDormant(p, now),

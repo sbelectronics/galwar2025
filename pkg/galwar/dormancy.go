@@ -57,6 +57,12 @@ func (u *UniverseType) GetVisibleObjectsInSector(sector int, kind string, viewer
 	out := objs[:0]
 	for _, obj := range objs {
 		if p, ok := obj.(*Player); ok && p != viewer {
+			// a ship that has never moved (a registration that never left dock)
+			// isn't part of the visible world yet; anti-cloak doesn't apply -
+			// there is nothing there to detect. First move makes it permanent.
+			if !p.EverMoved {
+				continue
+			}
 			if u.IsDormant(p, now) {
 				continue
 			}

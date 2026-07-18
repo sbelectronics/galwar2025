@@ -11,19 +11,22 @@ import (
 // only a courier between the actor and the store.
 
 type playerRow struct {
-	id        string
-	email     string
-	name      string
-	sector    int
-	money     int
-	googleSub string
-	passHash  string
-	lastSeen  int64
-	timesDied int
-	diedAt    int64
-	systems   string
-	banned    bool
-	expired   bool
+	id          string
+	email       string
+	name        string
+	sector      int
+	money       int
+	googleSub   string
+	passHash    string
+	lastSeen    int64
+	timesDied   int
+	diedAt      int64
+	systems     string
+	banned      bool
+	expired     bool
+	everMoved   bool
+	bankBalance int
+	bankedTurns int
 }
 
 type newsRow struct {
@@ -162,19 +165,22 @@ func (u *UniverseType) Snapshot() *Snapshot {
 
 	for _, p := range u.Players.Players {
 		s.players = append(s.players, playerRow{
-			id:        string(p.Id),
-			email:     p.Email,
-			name:      p.Name,
-			sector:    p.Sector,
-			money:     p.Money,
-			googleSub: p.GoogleSub,
-			passHash:  p.PassHash,
-			lastSeen:  p.LastSeen,
-			timesDied: p.TimesDied,
-			diedAt:    p.DiedAt,
-			systems:   systemsToString(p.Systems),
-			banned:    p.Banned,
-			expired:   p.Expired,
+			id:          string(p.Id),
+			email:       p.Email,
+			name:        p.Name,
+			sector:      p.Sector,
+			money:       p.Money,
+			googleSub:   p.GoogleSub,
+			passHash:    p.PassHash,
+			lastSeen:    p.LastSeen,
+			timesDied:   p.TimesDied,
+			diedAt:      p.DiedAt,
+			systems:     systemsToString(p.Systems),
+			banned:      p.Banned,
+			expired:     p.Expired,
+			everMoved:   p.EverMoved,
+			bankBalance: p.BankBalance,
+			bankedTurns: p.BankedTurns,
 		})
 		snapCommodities(&s.commodities, "player", string(p.Id), p.Inventory)
 	}

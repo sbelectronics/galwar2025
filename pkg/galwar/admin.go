@@ -1,6 +1,7 @@
 package galwar
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -30,6 +31,28 @@ type AuditEntry struct {
 
 const maxAuditEntries = 5000
 
+// ApplyModerationExtras feeds the profanity_extra / safelist_extra config keys
+// into the moderation censor. Call once at startup, before sessions begin, on
+// the actor: gostrict's dictionaries aren't safe to mutate concurrently with
+// name checks.
+func (u *UniverseType) ApplyModerationExtras() {
+	splitWords := func(csv string) []string {
+		var out []string
+		for _, w := range strings.Split(csv, ",") {
+			if w = strings.TrimSpace(w); w != "" {
+				out = append(out, w)
+			}
+		}
+		return out
+	}
+	for _, w := range splitWords(u.ConfigString("profanity_extra", "")) {
+		moderation.AddProfanity(w)
+	}
+	for _, w := range splitWords(u.ConfigString("safelist_extra", "")) {
+		moderation.AddSafe(w)
+	}
+}
+
 // IsAdmin reports whether a player is a sysop.
 func (u *UniverseType) IsAdmin(p *Player) bool {
 	if p == nil || p.Email == "" {
@@ -52,6 +75,18 @@ func (u *UniverseType) AddAudit(now int64, actor, action, detail string) {
 	u.MarkDirty()
 }
 
+// auditRejection records a moderation rejection - the raw input and the rule
+// that fired - so the sysop can tune profanity_extra / safelist_extra from
+// real attempts instead of guesses. The input is %q-quoted (control bytes and
+// escapes rendered inert) and truncated, so a rejected injection attempt
+// can't reach the sysop's screen through the audit trail it created.
+func (u *UniverseType) auditRejection(actor, kind, input string, reason error) {
+	if len(input) > 80 {
+		input = input[:80] + "..."
+	}
+	u.AddAudit(time.Now().Unix(), actor, "reject-"+kind, fmt.Sprintf("%q: %v", input, reason))
+}
+
 func (u *UniverseType) trimAudit() {
 	if len(u.Audit) > maxAuditEntries {
 		u.Audit = u.Audit[len(u.Audit)-maxAuditEntries:]
@@ -65,6 +100,10 @@ func (u *UniverseType) FileReport(reporter *Player, targetHandle, reason string)
 	}
 	targetHandle = strings.TrimSpace(targetHandle)
 	reason = strings.TrimSpace(reason)
+	if err := moderation.CheckReportReason(reason); err != nil {
+		u.auditRejection(reporter.GetName(), "report-reason", reason, err)
+		return NewGameError(ErrInvalidName, err.Error())
+	}
 	target := u.Players.GetByNormalizedName(targetHandle)
 	if target == nil {
 		return NewGameError(ErrNotFound, "No trader by that handle.")
@@ -142,6 +181,7 @@ func (u *UniverseType) ForceRename(admin *Player, targetHandle, newName string) 
 	}
 	newName = strings.TrimSpace(newName)
 	if err := moderation.CheckName(newName); err != nil {
+		u.auditRejection(admin.GetName(), "handle", newName, err)
 		return NewGameError(ErrInvalidName, err.Error())
 	}
 	norm := moderation.Normalize(newName)

@@ -21,6 +21,15 @@ type Player struct {
 	Systems   []int // damage per ship system, in turns (see System* constants)
 	Banned    bool  // sysop ban; refused at login
 	Expired   bool  // Tier-2 dormancy cleanup already applied; cleared on login
+	EverMoved bool  // has ever moved sectors; a never-moved ship is hidden from others
+	// BankBalance is the player's Interstel account (bank.go). It survives the
+	// destruction of the ship - death wipes the ship, not the ledger - but is
+	// forfeited by Tier-2 expiry.
+	BankBalance int
+	// BankedTurns is the Fusion Cell reserve: unused daily turns carried over
+	// (up to turns_per_day) and drawn once the daily allowance is spent. Zero
+	// without a Fusion Cell. Reset to a starter with the ship.
+	BankedTurns int
 	ObjectBase
 	InventoryBase
 }
@@ -139,6 +148,11 @@ func (u *UniverseType) NewPlayer(name string, email string) *Player {
 func (u *UniverseType) RegisterPlayer(name string, email string, googleSub string) (*Player, error) {
 	name = strings.TrimSpace(name)
 	if err := moderation.CheckName(name); err != nil {
+		actor := email
+		if actor == "" {
+			actor = "unregistered"
+		}
+		u.auditRejection(actor, "handle", name, err)
 		return nil, NewGameError(ErrInvalidName, err.Error())
 	}
 	norm := moderation.Normalize(name)
@@ -170,10 +184,18 @@ func (u *UniverseType) SetTelnetPassword(p *Player, password string) error {
 // CheckTelnetPassword verifies a telnet login attempt. Accounts without a
 // password (web-only accounts) always fail.
 func (p *Player) CheckTelnetPassword(password string) bool {
-	if p.PassHash == "" {
+	return CheckPasswordHash(p.PassHash, password)
+}
+
+// CheckPasswordHash verifies password against a bcrypt hash. Exported so a
+// front-end can copy the hash out on the universe actor and do the (slow)
+// bcrypt comparison off-actor, without reading Player fields off-actor. An
+// empty hash (web-only accounts) always fails.
+func CheckPasswordHash(hash, password string) bool {
+	if hash == "" {
 		return false
 	}
-	return bcrypt.CompareHashAndPassword([]byte(p.PassHash), []byte(password)) == nil
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 // TouchLastSeen records a session start, clearing any dormancy: a returning

@@ -40,6 +40,10 @@ const (
 	CLOAK      = "Cloaking Device"
 	ANTICLOAK  = "Anti-Cloaking Device"
 	PULSARTUBE = "Pulsar Tube"
+	// M15 devices
+	FUSIONCELL    = "Fusion Cell"       // durable: unused daily turns carry over
+	PLANETSCANNER = "Planetary Scanner" // durable: reveals a planet's defenses
+	MINEDEFLECTOR = "Mine Deflector"    // consumable: absorbs one mine detonation
 )
 
 var TradeGoods = []CommodityDefinition{
@@ -57,6 +61,9 @@ var TradeGoods = []CommodityDefinition{
 	{Commodity: Commodity{Name: CLOAK, SellPrice: 18000, Sell: true}, ShortName: "Cloak", Holds: 0, SellAtDevices: true},
 	{Commodity: Commodity{Name: ANTICLOAK, SellPrice: 22000, Sell: true}, ShortName: "Anticloak", Holds: 0, SellAtDevices: true},
 	{Commodity: Commodity{Name: PULSARTUBE, SellPrice: 350000, Sell: true}, ShortName: "PulsarTube", Holds: 0, SellAtDevices: true},
+	{Commodity: Commodity{Name: FUSIONCELL, SellPrice: 45000, Sell: true}, ShortName: "Fusion", Holds: 0, SellAtDevices: true},
+	{Commodity: Commodity{Name: PLANETSCANNER, SellPrice: 40000, Sell: true}, ShortName: "Scanner", Holds: 0, SellAtDevices: true},
+	{Commodity: Commodity{Name: MINEDEFLECTOR, SellPrice: 6000, Sell: true}, ShortName: "Deflector", Holds: 0, SellAtDevices: true},
 }
 
 // FindCommodityDef returns the definition for a commodity name, or nil if

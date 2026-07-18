@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sbelectronics/galwar/pkg/galwar"
@@ -56,6 +57,8 @@ func main() {
 	}
 
 	u.Start()
+
+	u.Do(u.ApplyModerationExtras) // fold any sysop profanity/safelist tuning in
 
 	if adminEmail := strings.TrimSpace(*admin); adminEmail != "" {
 		u.Do(func() {
@@ -113,7 +116,9 @@ func main() {
 	}
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
+	// SIGTERM too: it's what systemctl stop/restart sends, and missing it
+	// would skip the farewell/flush path below on every production restart
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
 	fmt.Println("\nshutting down...")
 

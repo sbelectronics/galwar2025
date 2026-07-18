@@ -384,6 +384,9 @@ func TestStoreMigrationV1toV2(t *testing.T) {
 		`ALTER TABLE players DROP COLUMN systems`,
 		`ALTER TABLE players DROP COLUMN banned`,
 		`ALTER TABLE players DROP COLUMN expired`,
+		`ALTER TABLE players DROP COLUMN ever_moved`,
+		`ALTER TABLE players DROP COLUMN bank_balance`,
+		`ALTER TABLE players DROP COLUMN banked_turns`,
 	} {
 		if _, err := db.Exec(ddl); err != nil {
 			t.Fatalf("regress %q: %v", ddl, err)

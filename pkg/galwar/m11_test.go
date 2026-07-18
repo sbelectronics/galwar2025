@@ -123,7 +123,7 @@ func TestGateFactionPlanetProportional(t *testing.T) {
 	cabal := u.EnsureNPC("cabal")
 
 	// scale to 35% of a 1,000,000 leader = 350,000
-	fortress := u.gateFactionPlanet(cabal, 350000, "Cabal Stronghold")
+	fortress := u.gateFactionPlanet(cabal, 350000, cabalStrongholdName, 15000)
 	if fortress == nil {
 		t.Fatalf("no stronghold created")
 	}
@@ -134,8 +134,8 @@ func TestGateFactionPlanetProportional(t *testing.T) {
 	}
 
 	// a huge leader is capped, not a runaway
-	u.gateFactionPlanet(cabal, 100000000, "Cabal Stronghold")
-	if got := u.factionFortress(cabal).GetQuantity(FIGHTERS); got != u.ConfigInt("cabal_max_planet_fighters", 15000) {
+	u.gateFactionPlanet(cabal, 100000000, cabalStrongholdName, 15000)
+	if got := u.factionStronghold(cabal, cabalStrongholdName).GetQuantity(FIGHTERS); got != u.ConfigInt("cabal_max_planet_fighters", 15000) {
 		t.Errorf("stronghold not capped for a huge leader: %d", got)
 	}
 }
@@ -144,7 +144,7 @@ func TestFactionStrikeKills(t *testing.T) {
 	u := factionUniverse(t)
 	now := time.Now()
 	cabal := u.EnsureNPC("cabal")
-	fortress := u.gateFactionPlanet(cabal, 5000000, "Cabal Stronghold") // big
+	fortress := u.gateFactionPlanet(cabal, 5000000, cabalStrongholdName, 15000) // big
 	victim := makeActivePlayer(t, u, "Marked One", "m@x.com", 500000, now)
 	victim.MoveTo(40)
 	victim.SetQuantity(FIGHTERS, 100)
@@ -165,7 +165,7 @@ func TestFactionStrikeSparesFedSpace(t *testing.T) {
 	u := factionUniverse(t)
 	now := time.Now()
 	cabal := u.EnsureNPC("cabal")
-	fortress := u.gateFactionPlanet(cabal, 5000000, "Cabal Stronghold")
+	fortress := u.gateFactionPlanet(cabal, 5000000, cabalStrongholdName, 15000)
 
 	// a rich, worthy target - but sheltering in Federation space (sector 5)
 	safe := makeActivePlayer(t, u, "Docked One", "d2@x.com", 900000, now)
@@ -191,7 +191,7 @@ func TestFactionMayhemSparesNewbies(t *testing.T) {
 	u := factionUniverse(t)
 	now := time.Now()
 	cabal := u.EnsureNPC("cabal")
-	fortress := u.gateFactionPlanet(cabal, 5000000, "Cabal Stronghold")
+	fortress := u.gateFactionPlanet(cabal, 5000000, cabalStrongholdName, 15000)
 
 	newbie := makeActivePlayer(t, u, "Fresh Meat", "f@x.com", 5000, now) // below floor
 	newbie.MoveTo(40)
@@ -212,7 +212,7 @@ func TestFactionMayhemSparesNewbies(t *testing.T) {
 func TestFedCounterCabalErodes(t *testing.T) {
 	u := factionUniverse(t)
 	cabal := u.EnsureNPC("cabal")
-	fortress := u.gateFactionPlanet(cabal, 1500000, "Cabal Stronghold")
+	fortress := u.gateFactionPlanet(cabal, 1500000, cabalStrongholdName, 15000)
 	before := fortress.GetQuantity(FIGHTERS)
 	u.fedCounterCabal()
 	after := fortress.GetQuantity(FIGHTERS)
@@ -236,7 +236,32 @@ func TestRunFactionAIIntegration(t *testing.T) {
 	}
 	// the Cabal now holds a stronghold planet
 	cabal := u.Players.GetBySub("npc:cabal")
-	if cabal == nil || u.factionFortress(cabal) == nil {
+	if cabal == nil || u.factionStronghold(cabal, cabalStrongholdName) == nil {
 		t.Errorf("Cabal has no stronghold after waking")
+	}
+}
+
+// A faction can own planets it inherited from dead players; gating must build
+// and pump its own named stronghold rather than the inherited world.
+func TestGateIgnoresInheritedPlanet(t *testing.T) {
+	u := factionUniverse(t)
+	cabal := u.EnsureNPC("cabal")
+
+	// an inherited spoil-of-war planet, owned by the Cabal but not its HQ
+	inherited := u.NewPlanet(cabal.Id, 40, "Some Dead Guy's World")
+	inherited.SetQuantity(FIGHTERS, 42)
+
+	fortress := u.gateFactionPlanet(cabal, 350000, cabalStrongholdName, 15000)
+	if fortress == nil {
+		t.Fatalf("no stronghold created")
+	}
+	if fortress.Name != cabalStrongholdName {
+		t.Errorf("gated the wrong planet: %q", fortress.Name)
+	}
+	if fortress.Sector == inherited.Sector {
+		t.Errorf("stronghold reused the inherited planet")
+	}
+	if inherited.GetQuantity(FIGHTERS) != 42 {
+		t.Errorf("inherited planet was pumped: %d fighters", inherited.GetQuantity(FIGHTERS))
 	}
 }

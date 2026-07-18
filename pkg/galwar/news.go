@@ -15,8 +15,13 @@ type NewsItem struct {
 
 // maxNewsItems bounds the global news list (the original trimmed its log to
 // 75 lines and messages to 3 days; we trim by count here and by age in
-// daily maintenance).
-const maxNewsItems = 2000
+// daily maintenance). maxNewsPerPlayer additionally bounds any one player's
+// share, so a noisy attacker (or a busy faction night) can't push another
+// player's undelivered "you were killed" notice off the end of the global list.
+const (
+	maxNewsItems     = 2000
+	maxNewsPerPlayer = 50
+)
 
 // AddNews queues a news line for a player. NPC owners don't read the news.
 func (u *UniverseType) AddNews(id PlayerId, now int64, msg string) {
@@ -24,6 +29,27 @@ func (u *UniverseType) AddNews(id PlayerId, now int64, msg string) {
 		return
 	}
 	u.News = append(u.News, &NewsItem{Player: id, At: now, Msg: msg})
+
+	// per-player cap: drop this player's oldest items (News is append-ordered,
+	// so oldest-first) before the global cap can evict anyone else's news
+	count := 0
+	for _, n := range u.News {
+		if n.Player == id {
+			count++
+		}
+	}
+	if drop := count - maxNewsPerPlayer; drop > 0 {
+		kept := u.News[:0]
+		for _, n := range u.News {
+			if drop > 0 && n.Player == id {
+				drop--
+				continue
+			}
+			kept = append(kept, n)
+		}
+		u.News = kept
+	}
+
 	if len(u.News) > maxNewsItems {
 		u.News = u.News[len(u.News)-maxNewsItems:]
 	}

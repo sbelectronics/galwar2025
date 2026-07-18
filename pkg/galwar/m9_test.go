@@ -65,6 +65,10 @@ func TestCloakHidesShip(t *testing.T) {
 	now := time.Now()
 	viewer, _ := u.RegisterPlayer("Viewer", "v@example.com", "")
 	ghost, _ := u.RegisterPlayer("Ghost", "g@example.com", "")
+	// established players (never-moved ships are hidden regardless of cloak;
+	// this test is about the cloak)
+	viewer.EverMoved = true
+	ghost.EverMoved = true
 	viewer.MoveTo(50)
 	ghost.MoveTo(50)
 	u.TouchLastSeen(viewer, now.Unix())
