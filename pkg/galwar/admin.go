@@ -3,7 +3,6 @@ package galwar
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/sbelectronics/galwar/pkg/moderation"
 )
@@ -84,7 +83,7 @@ func (u *UniverseType) auditRejection(actor, kind, input string, reason error) {
 	if len(input) > 80 {
 		input = input[:80] + "..."
 	}
-	u.AddAudit(time.Now().Unix(), actor, "reject-"+kind, fmt.Sprintf("%q: %v", input, reason))
+	u.AddAudit(Now().Unix(), actor, "reject-"+kind, fmt.Sprintf("%q: %v", input, reason))
 }
 
 func (u *UniverseType) trimAudit() {
@@ -111,7 +110,7 @@ func (u *UniverseType) FileReport(reporter *Player, targetHandle, reason string)
 	if target == reporter {
 		return NewGameError(ErrUnknown, "You can't report yourself.")
 	}
-	now := time.Now().Unix()
+	now := Now().Unix()
 	u.Reports = append(u.Reports, &Report{
 		Reporter: reporter.GetName(),
 		Target:   target.GetName(),
@@ -163,7 +162,7 @@ func (u *UniverseType) SetBanned(admin *Player, targetHandle string, banned bool
 	if !banned {
 		action = "unban"
 	}
-	u.AddAudit(time.Now().Unix(), admin.GetName(), action, target.GetName())
+	u.AddAudit(Now().Unix(), admin.GetName(), action, target.GetName())
 	u.MarkDirty()
 	return nil
 }
@@ -193,7 +192,7 @@ func (u *UniverseType) ForceRename(admin *Player, targetHandle, newName string) 
 	old := target.GetName()
 	target.Name = newName
 	u.ResolveReports(old)
-	u.AddAudit(time.Now().Unix(), admin.GetName(), "rename", old+" -> "+newName)
+	u.AddAudit(Now().Unix(), admin.GetName(), "rename", old+" -> "+newName)
 	u.MarkDirty()
 	return nil
 }

@@ -2,6 +2,12 @@ module github.com/sbelectronics/galwar
 
 go 1.25.0
 
+// Restore the pre-Go-1.24 behavior of math/rand.Seed (default randseednop=1
+// makes the top-level Seed a no-op). The bot simulation (pkg/botsim) seeds the
+// global RNG for reproducible deterministic runs; production never calls Seed,
+// so this only affects that path.
+godebug randseednop=0
+
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/google/uuid v1.6.0

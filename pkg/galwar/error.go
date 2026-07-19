@@ -51,6 +51,12 @@ func (e *GameError) Message() string {
 	return e.message
 }
 
+// Code returns the error's classification code, so callers (e.g. the bot
+// simulation) can distinguish routine rule violations from unexpected ones.
+func (e *GameError) Code() GameErrorCode {
+	return e.code
+}
+
 func NewGameError(code GameErrorCode, message string) *GameError {
 	return &GameError{
 		code:    code,

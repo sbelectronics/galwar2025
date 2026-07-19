@@ -4,13 +4,12 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
-	"time"
 
 	_ "modernc.org/sqlite" // pure Go, no cgo
 )
 
 func nowUnix() int64 {
-	return time.Now().Unix()
+	return Now().Unix()
 }
 
 func boolToInt(b bool) int {

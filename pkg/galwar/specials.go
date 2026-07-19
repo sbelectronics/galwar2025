@@ -3,7 +3,6 @@ package galwar
 import (
 	"fmt"
 	"math/rand"
-	"time"
 )
 
 // Special stockpile items (Sol-sold, carry any number): Plasma devices rewire
@@ -147,7 +146,7 @@ func (u *UniverseType) UsePulsarTube(p *Player, bombs int) ([]string, error) {
 	p.AdjustQuantity(PULSAR, -bombs)
 	report := u.bombPlanet(planet, 500*bombs)
 	if owner != p.Id {
-		u.AddNews(owner, time.Now().Unix(), fmt.Sprintf("Your planet %s in sector %d was pulsar-bombed from orbit by %s!", name, p.Sector, p.GetName()))
+		u.AddNews(owner, Now().Unix(), fmt.Sprintf("Your planet %s in sector %d was pulsar-bombed from orbit by %s!", name, p.Sector, p.GetName()))
 	}
 	u.MarkDirty()
 	return report, nil

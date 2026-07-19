@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/sbelectronics/galwar/pkg/galwar"
 )
@@ -87,7 +86,7 @@ func SessionStart(u *galwar.UniverseType, term Terminal, player *galwar.Player) 
 	var alive bool
 	var news []string
 	u.Do(func() {
-		deathMsg, _ = u.ReconstructIfDue(player, time.Now())
+		deathMsg, _ = u.ReconstructIfDue(player, galwar.Now())
 		alive = !player.IsDead()
 		if alive {
 			news = u.TakeNews(player.Id)

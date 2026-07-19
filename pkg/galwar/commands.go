@@ -2,7 +2,6 @@ package galwar
 
 import (
 	"fmt"
-	"time"
 )
 
 // Engine command entry points. The engine is the sole authority on game
@@ -69,7 +68,7 @@ func (u *UniverseType) MovePlayer(p *Player, dest int) ([]string, error) {
 	// never left dock - stay hidden from other players (see GetVisibleObjectsInSector).
 	p.EverMoved = true
 
-	now := time.Now().Unix()
+	now := Now().Unix()
 	var report []string
 
 	// hostile defense force? fight your way in with everything you have
@@ -178,7 +177,7 @@ func (u *UniverseType) Dock(player *Player, port *Port) error {
 	if err := u.spendTurn(player); err != nil {
 		return err
 	}
-	port.Restock(time.Now().Unix())
+	port.Restock(Now().Unix())
 	u.MarkDirty()
 	return nil
 }

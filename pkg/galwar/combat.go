@@ -93,7 +93,7 @@ func (u *UniverseType) AttackPlayer(attacker *Player, targetId PlayerId, commit 
 	}
 	// a dormant player's ship is hidden and can't be farmed while its owner
 	// is away (Tier-1 dormancy)
-	if u.IsDormant(target, time.Now()) {
+	if u.IsDormant(target, Now()) {
 		return nil, NewGameError(ErrNotFound, "They aren't here anymore!")
 	}
 	// a cloaked target can't be seen (hence attacked) without an anti-cloak
@@ -113,7 +113,7 @@ func (u *UniverseType) AttackPlayer(attacker *Player, targetId PlayerId, commit 
 		return nil, err
 	}
 
-	now := time.Now().Unix()
+	now := Now().Unix()
 	sector := attacker.Sector
 	var report []string
 
@@ -254,7 +254,7 @@ func (u *UniverseType) InvadePlanet(attacker *Player, commit int) ([]string, err
 		return nil, err
 	}
 
-	now := time.Now().Unix()
+	now := Now().Unix()
 	sector := attacker.Sector
 	oldOwner := planet.Owner
 	startFighters := attacker.GetQuantity(FIGHTERS)
@@ -415,7 +415,7 @@ func (u *UniverseType) LaunchBattleGroup(sender *Player, target int, ships int) 
 		return nil, err
 	}
 
-	now := time.Now().Unix()
+	now := Now().Unix()
 	sender.AdjustQuantity(FIGHTERS, -ships) // the fleet launches
 	fleet := ships
 	report := []string{fmt.Sprintf("Battle group of %d ships away, bound for sector %d!", ships, target)}

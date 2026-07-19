@@ -69,7 +69,7 @@ func (m *MaintenanceDaemon) run() {
 
 func (m *MaintenanceDaemon) check() {
 	m.u.Do(func() {
-		m.u.RunDailyMaintenance(time.Now())
+		m.u.RunDailyMaintenance(Now())
 	})
 }
 

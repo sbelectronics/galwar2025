@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sbelectronics/galwar/pkg/galwar"
 )
@@ -22,6 +21,11 @@ type ConsoleUI struct {
 	Term       Terminal
 	Terminated bool
 	input      string
+
+	// OnError, if set, is called with every engine error shown to the player.
+	// The interactive front-ends leave it nil; the bot simulation uses it to
+	// classify and record errors without screen-scraping the transcript.
+	OnError func(err error)
 }
 
 func NewConsoleUI(universe *galwar.UniverseType, player *galwar.Player, term Terminal) *ConsoleUI {
@@ -37,6 +41,9 @@ func (c *ConsoleUI) printf(format string, args ...any) {
 }
 
 func (c *ConsoleUI) PrintError(err error) {
+	if c.OnError != nil {
+		c.OnError(err)
+	}
 	// the original showed rule violations in light red throughout
 	c.printf("%s%s%s\n", LightRed, ErrText(err), Reset)
 	// an error aborts anything queued behind it: an autopilot course (or any
@@ -192,7 +199,7 @@ func (c *ConsoleUI) printObject(obj galwar.ObjectInterface) {
 }
 
 func (c *ConsoleUI) DisplaySector(secnum int) {
-	now := time.Now()
+	now := galwar.Now()
 	c.Universe.Do(func() {
 		c.printf("%sSector: %d%s\n", LightRed, secnum, Reset)
 
@@ -376,7 +383,7 @@ func (c *ConsoleUI) ExecuteAttack() {
 		name string
 	}
 	var targets []candidate
-	now := time.Now()
+	now := galwar.Now()
 	c.Universe.Do(func() {
 		for _, obj := range c.Universe.GetVisibleObjectsInSector(c.Player.Sector, galwar.TYPE_PLAYER, c.Player, now) {
 			p, ok := obj.(*galwar.Player)
@@ -588,7 +595,7 @@ func (c *ConsoleUI) DockServicePort(port *galwar.Port) {
 	c.Universe.Do(func() {
 		// commerce report: yellow title, green headers, white rows
 		// (TWARS.PAS port procedure)
-		c.printf("%sCommerce Report For %s: %s%s\n", Yellow, port.GetName(), time.Now().Format("2006-01-02 15:04:05"), Reset)
+		c.printf("%sCommerce Report For %s: %s%s\n", Yellow, port.GetName(), galwar.Now().Format("2006-01-02 15:04:05"), Reset)
 		c.printf("\n")
 
 		c.printf("%s##  Item name               Cost      Can Afford\n", Green)
@@ -685,7 +692,7 @@ func (c *ConsoleUI) DockPort() {
 	c.Universe.Do(func() {
 		// commerce report: yellow title, green headers, white rows
 		// (TWARS.PAS port procedure)
-		c.printf("%sCommerce Report For %s: %s%s\n", Yellow, port.GetName(), time.Now().Format("2006-01-02 15:04:05"), Reset)
+		c.printf("%sCommerce Report For %s: %s%s\n", Yellow, port.GetName(), galwar.Now().Format("2006-01-02 15:04:05"), Reset)
 		c.printf("\n")
 		c.printf("%s Items     Status    Price  # units  In holds\n", Green)
 		c.printf(" =====     ======    =====  =======  ========%s\n", White)
@@ -784,7 +791,7 @@ func (c *ConsoleUI) DockBank() {
 		})
 		if first {
 			first = false
-			c.printf("%sInterstel Galactic Banking: %s%s\n", Yellow, time.Now().Format("2006-01-02 15:04:05"), Reset)
+			c.printf("%sInterstel Galactic Banking: %s%s\n", Yellow, galwar.Now().Format("2006-01-02 15:04:05"), Reset)
 			c.printf("\n%sDeposits earn %d%% interest nightly on the first %d credits,\nand your account survives the destruction of your ship.%s\n", LightCyan, pct, capAmt, Reset)
 		}
 		c.printf("\n%s  Account balance: %s%d\n", Cyan, White, balance)
@@ -933,7 +940,7 @@ func (c *ConsoleUI) ExecuteSetPassword() {
 
 func (c *ConsoleUI) PlanetReport(planet *galwar.Planet) {
 	c.Universe.Do(func() {
-		c.printf("%sPlanet report For %s: %s%s\n", Yellow, planet.GetName(), time.Now().Format("2006-01-02 15:04:05"), Reset)
+		c.printf("%sPlanet report For %s: %s%s\n", Yellow, planet.GetName(), galwar.Now().Format("2006-01-02 15:04:05"), Reset)
 		c.printf("\n")
 		c.printf("%s Items      Prod     # units  In holds\n", Green)
 		c.printf(" =====     ======    =======  ========%s\n", White)
@@ -1268,7 +1275,7 @@ func (c *ConsoleUI) chooseCommodity() string {
 
 // ShowUniverseStats is the [U] report: the state of the galaxy.
 func (c *ConsoleUI) ShowUniverseStats() {
-	now := time.Now()
+	now := galwar.Now()
 	c.Universe.Do(func() {
 		s := c.Universe.Stats(now)
 		c.printf("\n%sUniverse Specifics:%s\n", Yellow, Reset)
@@ -1309,7 +1316,7 @@ func (c *ConsoleUI) ShowRecentNews() {
 const rankingsCap = 20
 
 func (c *ConsoleUI) ShowRankings() {
-	now := time.Now()
+	now := galwar.Now()
 	c.Universe.Do(func() {
 		ranks := c.Universe.RankedPlayers(now)
 		c.printf("\n%s   Rank  Trader                          Net Worth\n", Green)
